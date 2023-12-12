@@ -1,0 +1,3593 @@
+---
+title: "StatsBomb project - WWC2023 data analysis "
+output:
+  html_document:
+    df_print: paged
+  html_notebook: default
+  pdf_document: default
+editor_options:
+  markdown:
+    wrap: 72
+---
+
+Authors : Julie TREILHOU - Laly LACROIX
+
+```{r}
+pacman::p_load(tidyverse, ## mainly dplyr, purrr, and tidyr
+               StatsBombR, SBpitch, soccermatics,
+               extrafont, ggupset, tibbletime,
+               ggtext, ggrepel, glue,
+               patchwork, cowplot, gtable, grid,
+               magick)
+
+# Define a font family
+font_family <- "Arial"  # Change this to your preferred font
+
+```
+
+
+```{r}
+library(tidyverse)
+library(StatsBombR)
+library(extrafont)
+```
+
+```{r}
+# World Cup 2023 (id 72)
+WC2023 <- FreeCompetitions() %>%
+filter(competition_id==72 & season_name=="2023")
+
+# Games availables in WC2023
+Matches <- FreeMatches(WC2023)
+
+# Events for the games of the WC2023
+WC2023_dataframe <- free_allevents(MatchesDF = Matches, Parallel = T)
+WC2023_dataframe = allclean(WC2023_dataframe)
+
+```
+
+```{r}
+library(stringr)
+library(dplyr)
+WC2023_dataframe <- WC2023_dataframe %>%
+  mutate(team.name = str_remove(team.name, " Women's"))
+
+WC2023_dataframe <- WC2023_dataframe %>%
+  mutate(possession_team.name = str_remove(possession_team.name, " Women's"))
+```
+
+```{r}
+# Le pied préféré d'un joueur pour effectuer les passes peut être son pied droit, son pied gauche ou même les deux (ambidextre).Cela peut influencer les décisions tactiques et la stratégie d'une équipe.
+preferred_foot = get.playerfootedness(WC2023_dataframe)
+
+preferred_foot <- preferred_foot %>%
+  left_join(select(WC2023_dataframe, player.id, player.name, team.name), by = "player.id")
+
+preferred_foot <- preferred_foot %>%
+  distinct(player.id, .keep_all = TRUE)
+```
+
+```{r}
+# Filtrer les joueuses de l'équipe d'Espagne
+spain_players <- preferred_foot %>% filter(team.name == "Spain")
+
+# Calculer les proportions
+proportions <- spain_players %>% count(DominantFoot) %>%
+  mutate(percent = n / sum(n))
+
+# Créer un diagramme en camembert
+library(ggplot2)
+ggplot(proportions, aes(x = "", y = percent, fill = DominantFoot, label = scales::percent(percent))) +
+  geom_bar(stat = "identity", width = 1) +
+  geom_text(position = position_stack(vjust = 0.5)) +
+  coord_polar(theta = "y") +
+  labs(title = "Repartition of dominant playing foot for Spanish players",
+       fill = "Preferred foot") +
+  scale_fill_manual(values = c("blue", "red")) +
+  theme_void() +
+  theme(legend.position = "right", text = element_text(family = "Arial"))
+
+```
+
+```{r}
+# Filtrer les joueuses de l'équipe d'Espagne
+spain_players <- preferred_foot %>% filter(team.name == "Spain")
+
+# Créer un graphique en barres empilées sans axe des ordonnées
+library(ggplot2)
+ggplot(spain_players, aes(x = player.name, fill = DominantFoot)) +
+  geom_bar() +
+  labs(title = "Preferred playing foot per player for the Spanish team ",
+       x = "Player") +
+  scale_fill_manual(values = c("blue", "red")) +
+  theme(text = element_text(family = "Arial")) +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  theme(axis.title.y = element_blank(), axis.text.y = element_blank(),
+        axis.ticks.y = element_blank())
+
+```
+
+**GOALS AND SHOTS**
+
+```{r}
+#Shots & Goals numbers WC2023
+shots_goals = WC2023_dataframe %>%
+group_by(team.name) %>% 
+summarise(shots = sum(type.name=="Shot", na.rm = TRUE),
+goals = sum(shot.outcome.name=="Goal", na.rm = TRUE)) 
+```
+
+```{r}
+#Shots & Goals numbers WC2023
+shots_goals_all_matches = WC2023_dataframe %>%
+group_by(match_id) %>% 
+summarise(shots = sum(type.name=="Shot", na.rm = TRUE),
+goals = sum(shot.outcome.name=="Goal", na.rm = TRUE)) 
+
+```
+
+```{r}
+# Liste des match.ids souhaités
+match_ids <- c(3893791, 3901733, 3902240, 3893822, 3893806, 3904628, 3906390)
+
+# Sélectionner les lignes correspondant aux match.ids souhaités
+spain_goals <- shots_goals_all_matches %>%
+  filter(match_id %in% match_ids)
+
+print(spain_goals)
+```
+
+```{r}
+spain_goals <- spain_goals %>%
+  mutate(match_date = case_when(
+    match_id == 3893791 ~ as.Date("2023-07-21"),
+    match_id == 3893806 ~ as.Date("2023-07-26"),
+    match_id == 3893822 ~ as.Date("2023-07-31"),
+    match_id == 3901733 ~ as.Date("2023-08-05"),
+    match_id == 3902240 ~ as.Date("2023-08-11"),
+    match_id == 3904628 ~ as.Date("2023-08-15"),
+    match_id == 3906390 ~ as.Date("2023-08-20"),
+    TRUE ~ NA_Date_  # Valeur par défaut si aucune condition n'est remplie
+  ))
+```
+
+```{r}
+library(ggplot2)
+
+
+# Créer un diagramme en barres horizontal
+ggplot(spain_goals, aes(y = as.factor(match_date))) +
+  geom_bar(aes(x = shots, fill = "shots"), stat = "identity", position = "dodge", width = 0.8) +
+  geom_bar(aes(x = goals, fill = "goals"), stat = "identity", position = "dodge", width = 0.8) +
+  labs(title = "Number of Shots and Goals per match for the Spanish team",
+       y = "Match date",
+       x = "Number") +
+  scale_fill_manual(values = c("shots" = "#AED6F1", "goals" = "#555555")) +
+  theme(text=element_text(family = font_family))
+  
+```
+
+```{r}
+library(ggplot2)
+
+
+# Créer un diagramme en barres horizontal
+ggplot(spain_goals, aes(y = as.factor(match_id))) +
+  geom_bar(aes(x = shots, fill = "shots"), stat = "identity", position = "dodge", width = 0.8) +
+  geom_bar(aes(x = goals, fill = "goals"), stat = "identity", position = "dodge", width = 0.8) +
+  labs(title = "Number of Shots and Goals per match for the Spanish team",
+       y = "Match date",
+       x = "Number") +
+  scale_fill_manual(values = c("shots" = "blue", "goals" = "red")) +
+  theme(text=element_text(family = font_family))
+  
+```
+
+```{r}
+#Mean of Shots & Goals numbers per match
+shots_goals_per_game = WC2023_dataframe  %>%
+group_by(team.name) %>%
+summarise(shots = sum(type.name=="Shot", na.rm = TRUE)/n_distinct(match_id),
+goals = sum(shot.outcome.name=="Goal", na.rm = TRUE)/n_distinct(match_id))
+```
+
+**FROM DATA TO CHART**
+
+```{r}
+
+font_size <- 8
+ggplot(data = shots_goals,
+aes(x = reorder(team.name, shots), y = shots)) + #1
+geom_bar(stat = "identity", width = 0.5) + #2
+labs(y="Number of shots", title= "Number of Shots per team during the soccer WC2023") + #3
+theme(axis.title.y = element_blank()) + #4
+scale_y_continuous( expand = c(0,0)) + #5
+coord_flip() + #6
+theme(axis.title.y=element_blank(),text=element_text(family = font_family))
+```
+
+```{r}
+
+font_size <- 8
+ggplot(data = shots_goals,
+aes(x = reorder(team.name, goals), y = goals)) + #1
+geom_bar(stat = "identity", width = 0.5) + #2
+labs(y="Number of goals", title= "Number of Goals per team during the soccer WC2023") + #3
+theme(axis.title.y = element_blank()) + #4
+scale_y_continuous( expand = c(0,0)) + #5
+coord_flip() + #6
+theme(axis.title.y=element_blank(),text=element_text(family = font_family))
+```
+
+```{r}
+
+font_size <- 8
+ggplot(data = shots_goals_per_game,
+aes(x = reorder(team.name, shots), y = shots)) + #1
+geom_bar(stat = "identity", width = 0.5) + #2
+labs(y="Average number of shots", title= "Average number of shots per team during the soccer WC2023") + #3
+theme(axis.title.y = element_blank()) + #4
+scale_y_continuous( expand = c(0,0)) + #5
+coord_flip() + #6
+theme(axis.title.y=element_blank(),text=element_text(family = font_family))
+```
+
+```{r}
+
+font_size <- 8
+ggplot(data = shots_goals_per_game,
+aes(x = reorder(team.name, goals), y = goals)) + #1
+geom_bar(stat = "identity", width = 0.5) + #2
+labs(y="Average number of goals", title= "Average number of goals per team during the soccer world cup WC2023") + #3
+theme(axis.title.y = element_blank()) + #4
+scale_y_continuous( expand = c(0,0)) + #5
+coord_flip() + #6
+theme(axis.title.y=element_blank(),text=element_text(family = font_family))
+```
+
+**PLAYER SHOTS PER 90**
+Table pour obtenir des informations sur les joueurs, notamment leur temps de jeu.)
+
+```{r}
+player_shots = WC2023_dataframe %>%
+ group_by(player.name, player.id) %>%
+summarise(shots = sum(type.name=="Shot", na.rm = TRUE)) #1
+
+#minutes played in each match by ever player in the dataset.
+player_minutes = get.minutesplayed(WC2023_dataframe) #2
+
+player_minutes <- player_minutes %>%
+  left_join(WC2023_dataframe %>%
+              select(player.id, player.name), by = "player.id") %>%
+  distinct(player.id, .keep_all = TRUE)  # Conserver uniquement une ligne par joueur
+
+#we group that by player and sum it altogether to get their total minutes played
+total_player_minutes = player_minutes %>%
+  group_by(player.id) %>%
+  summarise(minutes = sum(MinutesPlayed)) #3
+
+total_player_minutes <- total_player_minutes %>%
+  left_join(WC2023_dataframe %>%
+              select(player.id, player.name, team.name), by = "player.id") %>%
+  distinct(player.id, .keep_all = TRUE)  # Conserver uniquement une ligne par joueur
+
+
+player_shots = left_join(player_shots, total_player_minutes) #4
+player_shots = player_shots %>% mutate(nineties = minutes/90) #5
+player_shots = player_shots %>% mutate(shots_per90 = shots/nineties) #6
+
+print(player_shots)
+
+```
+
+Maintenant nous allons nous intérésser à une seule équipe : l'Espagne, qui a remporté cette coupe du monde.
+
+Sélectionnons donc les matchs de l'équipe "Spain Women's" = "Spain"
+
+```{r}
+library(dplyr)
+
+Matches <- Matches %>%
+  mutate(home_team.home_team_name = str_remove(home_team.home_team_name, " Women's"))
+
+Matches <- Matches %>%
+  mutate(away_team.away_team_name = str_remove(away_team.away_team_name, " Women's"))
+
+equipe_recherchee <- "Spain"
+
+# extraire les matchs joués par l'équipe recherchée.
+matchs_equipe_recherchee <- Matches %>%
+  filter(home_team.home_team_name == equipe_recherchee | away_team.away_team_name == equipe_recherchee)
+
+print(matchs_equipe_recherchee)
+```
+
+```{r}
+matchs_first_last = matchs_equipe_recherchee %>%
+  filter(match_date == '2023-07-21' | match_date == '2023-08-20')
+
+print(matchs_first_last)
+
+```
+
+```{r}
+# Filtrer le dataframe pour les matchs du 21 juillet 2023
+match_21_juillet <- matchs_first_last %>%
+  filter(match_date == '2023-07-21')
+
+print(match_21_juillet)
+```
+
+Petite partie pour visualiser davantage de détails sur tous les matchs de l'Espagne.
+
+```{r}
+equipe_recherchee <- "Spain"
+
+Infos_matchs_equipe_recherchee <- WC2023_dataframe %>%
+  filter(team.name == equipe_recherchee)
+
+print(Infos_matchs_equipe_recherchee)
+
+```
+
+```{r}
+#Infos sur tous les matchs mélangés de la Team Spain
+WC2023_Spain <- WC2023_dataframe %>%
+  filter(team.name == "Spain")
+
+print(WC2023_Spain)
+
+#Sélection des matchs de la team Spain
+WC2023_Spain_Matches <- Matches %>%
+  filter(home_team.home_team_name == "Spain" | away_team.away_team_name == "Spain" )
+
+#Sélection du premier match de la team Spain
+WC2023_Spain_Matches_first = WC2023_Spain_Matches %>%
+  filter(match_date == '2023-07-21') #changer juste la date pour refaire les tests pour les autres matchs
+
+#Le premier match Spain-Costa Rica
+WC2023_Spain_firstmatch_dataframe <- free_allevents(MatchesDF = WC2023_Spain_Matches_first, Parallel = T)
+WC2023_Spain_firstmatch_dataframe = allclean(WC2023_Spain_firstmatch_dataframe)
+print (WC2023_Spain_firstmatch_dataframe)
+
+#Sélection du dernier match de l'équipe de France
+WC2023_Spain_Matches_last = WC2023_Spain_Matches %>%
+  filter(match_date == '2023-08-20')
+
+#Le dernier match Spain-England
+WC2023_Spain_lastmatch_dataframe <- free_allevents(MatchesDF = WC2023_Spain_Matches_last, Parallel = T)
+WC2023_Spain_lastmatch_dataframe = allclean(WC2023_Spain_lastmatch_dataframe)
+print (WC2023_Spain_lastmatch_dataframe)
+
+```
+
+```{r}
+WC2023_Spain_firstmatch_dataframe <- WC2023_Spain_firstmatch_dataframe %>%
+  mutate(team.name = str_remove(team.name, " Women's"))
+```
+
+```{r}
+WC2023_Spain_lastmatch_dataframe <- WC2023_Spain_lastmatch_dataframe %>%
+  mutate(team.name = str_remove(team.name, " Women's"))
+```
+
+```{r}
+saveRDS(WC2023_Spain_firstmatch_dataframe, file = "Dataframe_6e_match.RData")
+```
+
+**Passes / tirs et joueuses de l'équipe d'Espagne**
+
+```{r}
+# Calculer la moyenne du nombre de tirs et de buts par match par joueuse
+shots_goals_per_game_Spain = WC2023_Spain %>%
+  group_by(player.name) %>%
+  summarise(
+    shots = sum(type.name == "Shot", na.rm = TRUE) / n_distinct(match_id),
+    goals = sum(shot.outcome.name == "Goal", na.rm = TRUE) / n_distinct(match_id)
+  )
+
+# Filtrer les joueuses qui ont au moins un tir ou un but
+shots_goals_per_game_Spain = shots_goals_per_game_Spain %>%
+  filter(shots > 0 | goals > 0)
+
+```
+
+```{r}
+# Sélectionner uniquement les noms des joueuses de l'équipe d'Espagne
+joueuses_Spain = shots_goals_per_game_Spain$player.name
+joueuses_Spain = data.frame(player.name = joueuses_Spain)
+```
+
+```{r}
+font_size <- 8
+ggplot(data = shots_goals_per_game_Spain,
+aes(x = reorder(player.name, shots), y = shots)) + #1
+geom_bar(stat = "identity", width = 0.5) + #2
+labs(y="Average number of shots", title= "Average number of shots per match for Spanish players") + #3
+theme(axis.title.y = element_blank()) + #4
+scale_y_continuous( expand = c(0,0)) + #5
+coord_flip() + #6
+theme(axis.title.y=element_blank(),text=element_text(family = "Arial"))
+```
+
+```{r}
+font_size <- 8
+ggplot(data = shots_goals_per_game_Spain,
+aes(x = reorder(player.name, goals), y = goals)) + #1
+geom_bar(stat = "identity", width = 0.5) + #2
+labs(y="Average number of goals", title= "Average number of goals per match for Spanish players") + #3
+theme(axis.title.y = element_blank()) + #4
+scale_y_continuous( expand = c(0,0)) + #5
+coord_flip() + #6
+theme(axis.title.y=element_blank(),text=element_text(family = "Arial"))
+```
+
+```{r}
+# Créer un tableau de fréquence des types d'actions pour le premier et dernier match
+type_freq_first <- table(WC2023_Spain_firstmatch_dataframe$type.name)
+type_freq_last  <- table(WC2023_Spain_lastmatch_dataframe$type.name)
+
+# Créer un dataframe à partir du tableau de fréquence
+type_df_first <- as.data.frame(type_freq_first)
+colnames(type_df_first) <- c("Type", "Fréquence")
+
+type_df_last <- as.data.frame(type_freq_last)
+colnames(type_df_last) <- c("Type", "Fréquence")
+
+# Diviser chaque fréquence par le nombre total d'actions
+total_actions_first <- sum(type_df_first$Fréquence)
+type_df_first$Fréquence <- (type_df_first$Fréquence / total_actions_first) * 100
+
+# Diviser chaque fréquence par le nombre total d'actions
+total_actions_last <- sum(type_df_last$Fréquence)
+type_df_last$Fréquence <- (type_df_last$Fréquence / total_actions_last) * 100
+
+type_df_first <- type_df_first %>%
+  arrange(desc(Fréquence)) %>%
+  mutate(Type = reorder(Type, -Fréquence))
+
+ggplot(data = type_df_first, aes(x = Fréquence , y = Type, fill = Type)) +
+  geom_bar(stat = "identity") +
+  labs(title = "Distribution of action types in the first match with Spain") +
+  theme_minimal() +
+  theme(legend.position = "none") +
+  xlab("Frequency (in %)") +
+  ylab("Action types")
+
+type_df_last <- type_df_last %>%
+  arrange(desc(Fréquence)) %>%
+  mutate(Type = reorder(Type, -Fréquence))
+
+ggplot(data = type_df_last, aes(x = Fréquence , y = Type, fill = Type)) +
+  geom_bar(stat = "identity") +
+  labs(title = "Distribution of action types in the final worldcup match") +
+  theme_minimal() +
+  theme(legend.position = "none") +
+  xlab("Frequency (in %)") +
+  ylab("Action types")
+
+
+```
+
+**PRESSURE**
+
+Ce graphique montre la proportions d'actions de pression réalisées par chaque équipe sur l'équipe adverse : 
+ * 28% des actions de l'espagne sont des actions de "pression" sur les joueuses de l'équipe du Costa Rica
+ 
+```{r}
+pressure <- WC2023_Spain_firstmatch_dataframe[,c("team.name","player.name","type.name")]
+
+pressure <- pressure %>%
+  filter(type.name == "Pressure")
+```
+
+```{r}
+# Compter le nombre d'actions de pression par équipe
+proportion_pressure <- pressure %>%
+  group_by(team.name) %>%
+  summarise(Nombre_d_actions_de_pression = n())
+
+# Calculer le pourcentage d'actions de pression par équipe
+proportion_pressure <- proportion_pressure %>%
+  mutate(Pourcentage = (Nombre_d_actions_de_pression / sum(Nombre_d_actions_de_pression)) * 100)
+
+# Affichage
+ggplot(proportion_pressure, aes(x = team.name, y = Pourcentage)) +
+  geom_bar(stat = "identity") +
+  geom_text(aes(label = scales::percent(Pourcentage, scale = 1))) +
+  labs(title = "Frequency of pressure actions on the other team \n during the first match of Spain",
+       x = "Team", y = "Frequency of pressure (in %)") +
+  scale_y_continuous(labels = scales::percent_format(scale = 1), limits = c(0, 100)) +
+  theme_minimal()
+
+
+```
+
+**UNDER PRESSURE ACTIONS**
+
+action "under_pressure" : l'action en question a eu lieu alors que le joueur effectuant cette action était soumis à une pression de la part d'un adversaire
+
+```{r}
+under_pressure <- WC2023_Spain_lastmatch_dataframe[,c("team.name","player.name","under_pressure")]
+
+under_pressure <- under_pressure %>%
+  filter(under_pressure == TRUE)
+```
+
+```{r}
+
+# Compter le nombre d'actions de pression par équipe
+proportion_under_pressure <- under_pressure %>%
+  group_by(team.name) %>%
+  summarise(Nombre_d_actions_under_pression = n())
+
+# Calculer le pourcentage d'actions de pression par équipe
+proportion_under_pressure <- proportion_under_pressure %>%
+  mutate(Pourcentage_under_pression = (Nombre_d_actions_under_pression / sum(Nombre_d_actions_under_pression)) * 100)
+
+# Affichage
+ggplot(proportion_under_pressure, aes(x = team.name, y = Pourcentage_under_pression)) +
+  geom_bar(stat = "identity") +
+  geom_text(aes(label = scales::percent(Pourcentage_under_pression, scale = 1))) +
+  labs(title = "Frequency of under pressure's actions per team \n during the first match of Spain",
+       x = "Team", y = "Frequency of under pressure's actions (in %)") +
+  scale_y_continuous(labels = scales::percent_format(scale = 1)) +
+  scale_y_continuous(labels = scales::percent_format(scale = 1), limits = c(0, 100)) +
+  theme_minimal()
+
+
+```
+
+Explications : si un événement de jeu et un événement de pression se produisent en même temps ou se chevauchent dans le temps, l'événement de jeu est considéré comme étant sous pression. Par exemple, si un événement de pression a lieu avant une passe et que le moment où la pression commence (horodatage de la pression) plus sa durée couvre le moment de la passe, alors on dira que la passe a été effectuée sous pression. Cela signifie que la présence de la pression a influencé la passe ou l'a rendue plus difficile en raison de la proximité temporelle de la pression. Cela explique les légères différences entre les valeurs des graphiques d'actions de pression et d'actions sous pression !!!
+
+**BALL RECOVERY**
+
+"La récupération de balle" désigne une tentative visant à reprendre possession d'un ballon qui a été perdu ou est en jeu, souvent dans le contexte d'une compétition sportive, comme le football. Cela implique qu'un joueur ou une équipe effectue une action pour récupérer un ballon qui n'est actuellement sous le contrôle d'aucune équipe ou qui a été mal contrôlé par l'adversaire. La récupération de balle est cruciale dans de nombreux sports, car elle permet à une équipe de regagner le contrôle du jeu et d'initier de nouvelles phases d'attaque ou de défense.
+
+
+```{r}
+#   An attempt to recover a loose ball
+ball_recovery <- WC2023_Spain_firstmatch_dataframe[,c("team.name","player.name","type.name")]
+
+ball_recovery <- ball_recovery %>%
+  filter(type.name == "Ball Recovery")
+```
+
+```{r}
+# Compter le nombre d'actions de pression par équipe
+proportion_ball_recovery <- ball_recovery %>%
+  group_by(team.name) %>%
+  summarise(Nombre_d_actions_de_ball_recovery = n())
+
+# Calculer le pourcentage d'actions de pression par équipe
+proportion_ball_recovery <- proportion_ball_recovery %>%
+  mutate(Pourcentage = (Nombre_d_actions_de_ball_recovery / sum(Nombre_d_actions_de_ball_recovery)) * 100)
+
+# Affichage
+ggplot(proportion_ball_recovery, aes(x = team.name, y = Pourcentage)) +
+  geom_bar(stat = "identity") +
+  geom_text(aes(label = scales::percent(Pourcentage, scale = 1))) +
+  labs(title = "Frequency of ball recovery actions per team during the final match ",
+       x = "Team", y = "Frequency of ball recovery actions (in %)") +
+  scale_y_continuous(labels = scales::percent_format(scale = 1)) +
+  scale_y_continuous(labels = scales::percent_format(scale = 1), limits = c(0, 100)) +
+  theme_minimal()
+```
+
+**NOMBRE DE FOIS OU UNE JOUEUSE TOUCHE LE BALLON**
+
+Different types of events : 
+3 / "Dispossessed" : Le joueur perd le ballon face à unadversaire à la suite d'un tacle d'un défenseur sans tenter un dribble ; donc la joueuse était en possession du ballon 
+
+42 / "Ball Receipt" : l'action en question concerne soit la réception effective d'une passe, soit la tentative de réception d'une passe.
+
+10 / "Interception" : une action a été entreprise pour empêcher qu'une passe effectuée par un adversaire n'atteigne avec succès l'un de ses coéquipiers. Cette action consiste à se déplacer vers la trajectoire de la passe ou à réagir rapidement pour intercepter la balle.
+
+16 / "Shot" : tentative de marquer un but
+
+21 / "Foul Won" : un joueur gagne un coup franc ou un penalty pour son équipe après avoir été victime d'une faute
+commise par un joueur de l'équipe adverse.
+
+30 / "Pass" : un joueur tente de faire une passe à un coéquipier, il vise à envoyer la balle vers un autre joueur de son équipe pour lui permettre de continuer l'action, de créer une opportunité de but ou de points, ou de conserver la possession de la balle.
+
+```{r}
+touch_ball_spain_first_match <- WC2023_Spain_firstmatch_dataframe %>%
+  filter(type.id %in% c(3, 10, 16, 21, 30, 42)) %>%
+  select(team.name,player.name, type.id, type.name)
+```
+
+```{r}
+touch_ball_spain_first_match <- touch_ball_spain_first_match %>%
+  filter(team.name == "Spain")
+```
+
+```{r}
+# Créer un résumé du nombre d'apparitions de chaque joueuse
+resume_touch_ball_per_player <- touch_ball_spain_first_match %>%
+  group_by(player.name) %>%
+  summarise(Nombre_Apparitions = n())
+
+resume_touch_ball_per_player <- resume_touch_ball_per_player %>%
+  arrange(desc(Nombre_Apparitions))
+
+# Affichage
+ggplot(resume_touch_ball_per_player, aes(y = reorder(player.name, -Nombre_Apparitions), x = Nombre_Apparitions)) +
+  geom_bar(stat = "identity", fill = "skyblue") +
+  labs(title = "Number of times each Spanish player touches \n the ball during the first match of Spain",
+       x = "Number of ball possessions",
+       y = "Player") +
+  theme_minimal()
+```
+
+**JOUEUSES : hors jeu + erreurs donnant l'avantage à l'autre équipe**
+
+Type of errors : 
+
+8 / "Offside" : un joueur se trouve en position de hors-jeu au moment où le ballon lui est joué par un coéquipier 37 / "Error" : un joueur commet une erreur directe qui conduit à une occasion de tir au but pour l'équipe adverse. 
+
+24 / "Bad Behaviour" : le joueur a reçu une carte en raison d'une violation des règles ou d'un comportement répréhensible qui s'est produit en dehors des phases actives du jeu, avant ou après le match.
+
+38 / "Miscontrol" : un joueur perd la possession du ballon en raison d'un mauvais contrôle 
+
+```{r}
+error_ball_spain_first_match <- WC2023_Spain_firstmatch_dataframe %>%
+  filter(type.id %in% c(8,24,37,38)) %>%
+  select(team.name,player.name, type.id, type.name)
+```
+
+```{r}
+error_ball_spain_first_match <- error_ball_spain_first_match %>%
+  filter(team.name == "Spain")
+```
+
+```{r}
+# Créer un résumé du nombre d'apparitions d'erreurs de chaque joueuse
+resume_error_ball_per_player <- error_ball_spain_first_match %>%
+  group_by(player.name) %>%
+  summarise(Nombre_Apparitions_error = n())
+
+resume_error_ball_per_player <- resume_error_ball_per_player %>%
+  arrange(desc(Nombre_Apparitions_error))
+
+# Affichage
+ggplot(resume_error_ball_per_player, aes(y = reorder(player.name, -Nombre_Apparitions_error), x = Nombre_Apparitions_error)) +
+  geom_bar(stat = "identity", fill = "skyblue") +
+  labs(title = "Number of playing errors per Spanish player giving \n the advantage to the other team during their first match",
+       x = "Number of playing errors",
+       y = "Player") +
+  theme_minimal()
+```
+
+Maintenant, nous allons récuperer le type d'erreur le plus commis par chaque joueuse.
+
+```{r}
+# Obtenir le nombre d'apparitions de chaque type d'erreur par joueuse
+error_appearances_per_player <- error_ball_spain_first_match %>%
+  group_by(player.name, type.name) %>%
+  summarise(Nombre_Apparitions_error = n()) %>%
+  arrange(player.name, desc(Nombre_Apparitions_error))
+
+# Afficher le nombre d'apparitions de chaque type d'erreur par joueuse
+print(error_appearances_per_player)
+
+```
+
+```{r}
+# Obtenir le type d'erreur le plus courant pour l'ensemble des joueuses
+most_common_error <- error_ball_spain_first_match %>%
+  group_by(type.name) %>%
+  summarise(Nombre_Apparitions_error = n()) %>%
+  arrange(desc(Nombre_Apparitions_error)) %>%
+  slice(1)
+
+# Afficher le type d'erreur le plus courant
+print(most_common_error)
+
+```
+
+**PROGRESSION DU BALLON**
+
+data = passes_spain_women location (x = location.x, y = location.y)
+pass.end_location (xend = pass.end_location.x, yend = pass.end_location.y) (the center of the field is 60,40)
+
+39/ "Dribbled Past" : progression du ballon pour l'équipe adverse -- un joueur de l'équipe adverse a réussi à passer ou à contourner le joueur en question en utilisant une série de mouvements de dribble avec le ballon
+
+```{r}
+directions_passes_spain_match <- WC2023_Spain_firstmatch_dataframe %>%
+  filter(type.id == 30) %>%
+  select(timestamp, player.name, type.id, type.name, team.name, location.x, location.y, pass.end_location.x, pass.end_location.y) %>%
+  mutate(Pass_Forward = case_when(
+    team.name == "Spain" ~ ifelse(location.x <= pass.end_location.x, TRUE, FALSE),
+    team.name != "Spain" ~ ifelse(location.x <= pass.end_location.x, TRUE, FALSE),
+    TRUE ~ NA
+  ),
+  Pass_Backward = case_when(
+    team.name == "Spain" ~ ifelse(location.x > pass.end_location.x, TRUE, FALSE),
+    team.name != "Spain" ~ ifelse(location.x > pass.end_location.x, TRUE, FALSE),
+    TRUE ~ NA
+  ))
+
+directions_passes_spain_match <- directions_passes_spain_match %>%
+  mutate(team.name = str_remove(team.name, " Women's"))
+
+# Total des passes vers l'avant et vers l'arrière pour l'équipe d'Espagne
+total_forward_passes_spain <- directions_passes_spain_match %>%
+  filter(team.name == "Spain") %>%
+  summarise(Total_Forward_Passes = sum(Pass_Forward),
+            Total_Backward_Passes = sum(Pass_Backward))
+
+# Total des passes vers l'avant et vers l'arrière pour l'autre équipe
+total_forward_passes_autre_equipe <- directions_passes_spain_match %>%
+  filter(team.name != "Spain") %>%
+  summarise(Total_Forward_Passes = sum(Pass_Forward),
+            Total_Backward_Passes = sum(Pass_Backward))
+
+cat("Passes vers l'avant pour l'Espagne:", total_forward_passes_spain$Total_Forward_Passes, "\n")
+cat("Passes vers l'arrière pour l'Espagne:", total_forward_passes_spain$Total_Backward_Passes, "\n")
+
+cat("Passes vers l'avant pour l'autre équipe:", total_forward_passes_autre_equipe$Total_Forward_Passes, "\n")
+cat("Passes vers l'arrière pour l'autre équipe:", total_forward_passes_autre_equipe$Total_Backward_Passes, "\n")
+
+```
+
+```{r}
+# Filtrer les passes pour le premier match de l'équipe d'Espagne
+directions_passes_spain_match <- WC2023_Spain_firstmatch_dataframe %>%
+  filter(type.id == 30) %>%
+  select(timestamp, player.name, period, type.id, type.name, team.name, location.x, location.y, pass.end_location.x, pass.end_location.y)
+
+directions_passes_spain_match <- directions_passes_spain_match %>%
+  mutate(team.name = str_remove(team.name, " Women's"))
+
+# Ajouter une colonne pour le sens des passes
+directions_passes_spain_match <- directions_passes_spain_match %>%
+  mutate(
+    Pass_Direction = ifelse(
+      period == 1,
+      ifelse(
+        (team.name == "Spain" & location.x <= pass.end_location.x) |
+        (team.name != "Spain" & location.x <= pass.end_location.x),
+        "Forward",
+        "Backward"
+      ),
+      ifelse(
+        (team.name == "Spain" & location.x <= pass.end_location.x) |
+        (team.name != "Spain" & location.x <= pass.end_location.x),
+        "Forward",
+        "Backward"
+      )
+    )
+  )
+
+# Total des passes vers l'avant et vers l'arrière par équipe et par période
+total_passes_summary <- directions_passes_spain_match %>%
+  group_by(team.name, period, Pass_Direction) %>%
+  summarise(Count = n()) %>%
+  ungroup()  # Dissocier le group_by
+
+# Somme totale des passes vers l'avant et vers l'arrière pour chaque équipe
+total_passes_summary_total <- total_passes_summary %>%
+  group_by(team.name, Pass_Direction) %>%
+  summarise(Count = sum(Count))
+
+# Ajouter les lignes de la somme totale pour chaque équipe
+total_passes_summary <- bind_rows(total_passes_summary, total_passes_summary_total)
+
+# Afficher le résultat
+print(total_passes_summary)
+
+```
+
+```{r}
+library(dplyr)
+
+# Filtrer les passes pour le premier match de l'équipe d'Espagne
+directions_passes_spain_match_per_player <- WC2023_Spain_firstmatch_dataframe %>%
+  filter(type.id == 30) %>%
+  select(timestamp, player.name, period, type.id, type.name, team.name, location.x, location.y, pass.end_location.x, pass.end_location.y)
+
+directions_passes_spain_match_per_player <- directions_passes_spain_match_per_player %>%
+  mutate(team.name = str_remove(team.name, " Women's"))
+
+# Ajouter une colonne pour le sens des passes
+directions_passes_spain_match_per_player <- directions_passes_spain_match_per_player %>%
+  mutate(Pass_Direction = ifelse(period == 1, ifelse(
+    (team.name == "Spain" & location.x <= pass.end_location.x) |
+    (team.name != "Spain" & location.x <= pass.end_location.x),
+    "Forward",
+    "Backward"
+  ), ifelse(
+    (team.name == "Spain" & location.x <= pass.end_location.x) |
+    (team.name != "Spain" & location.x <= pass.end_location.x),
+    "Forward",
+    "Backward"
+  )))
+
+# Total des passes vers l'avant et vers l'arrière par équipe, joueuse et par période
+total_passes_summary_per_player <- directions_passes_spain_match_per_player %>%
+  group_by(team.name, player.name, period, Pass_Direction) %>%
+  summarise(Count = n()) %>%
+  ungroup()  # Dissocier le group_by
+
+# Somme totale des passes vers l'avant et vers l'arrière pour chaque équipe et joueuse
+total_passes_summary_total_player <- total_passes_summary_per_player %>%
+  group_by(team.name, player.name, Pass_Direction) %>%
+  summarise(Count = sum(Count))
+
+# Ajouter les lignes de la somme totale pour chaque équipe et joueuse
+total_passes_summary_per_player <- bind_rows(total_passes_summary_per_player, total_passes_summary_total_player)
+
+# Afficher le résultat
+print(total_passes_summary_per_player)
+
+```
+
+```{r}
+# Liste pour stocker les dataframes de chaque période
+dataframes_par_periode <- list()
+
+# Créer un dataframe par période
+for (periode in unique(total_passes_summary_per_player$period)) {
+  dataframe_per_periode <- total_passes_summary_per_player %>%
+    filter(period == periode)
+  dataframes_par_periode[[as.character(periode)]] <- dataframe_per_periode
+}
+
+# Accéder aux dataframes de chaque période
+directions_passes_periode_1 <- dataframes_par_periode[["1"]]
+directions_passes_periode_2 <- dataframes_par_periode[["2"]]
+directions_passes_total_match <- total_passes_summary_per_player %>%
+  filter(is.na(period))
+```
+
+```{r}
+# Liste des équipes uniques dans le dataframe
+equipes_uniques_p1 <- unique(directions_passes_periode_1$team.name)
+
+# Créer des listes pour stocker les graphiques
+graphiques <- list()
+
+# Créer un diagramme en barres groupées pour chaque équipe
+for (equipe in equipes_uniques_p1) {
+  # Filtrer les données pour l'équipe actuelle
+  equipe_data <- subset(directions_passes_periode_1, team.name == equipe)
+  
+  # Créer un diagramme en barres groupées
+  gg_equipe <- ggplot(equipe_data, aes(y=reorder(player.name, -Count), x = Count, fill = Pass_Direction)) +
+    geom_bar(stat = "identity", position = "dodge", width = 0.8) +
+    labs(title = paste("Number of forward and backward passes \n per player (Period 1) -", equipe),
+         y = "Player",
+         x = "Number of passes") +
+    scale_fill_manual(values = c("Forward" = "blue", "Backward" = "red")) +
+    theme_minimal() +
+    theme(axis.text.x = element_text(angle = 45, hjust = 1))
+  
+  # Ajouter le graphique à la liste
+  graphiques[[equipe]] <- gg_equipe
+  
+  print(gg_equipe)
+}
+
+
+```
+
+```{r}
+# Liste des équipes uniques dans le dataframe
+equipes_uniques_p2 <- unique(directions_passes_periode_2$team.name)
+
+# Créer des listes pour stocker les graphiques
+graphiques <- list()
+
+# Créer un diagramme en barres groupées pour chaque équipe
+for (equipe in equipes_uniques_p2) {
+  # Filtrer les données pour l'équipe actuelle
+  equipe_data2 <- subset(directions_passes_periode_2, team.name == equipe)
+  
+  # Créer un diagramme en barres groupées
+  gg_equipe2 <- ggplot(equipe_data2, aes(y = player.name, x = Count, fill = Pass_Direction)) +
+    geom_bar(stat = "identity", position = "dodge", width = 0.8) +
+    labs(title = paste("Number of forward and backward passes \n per player (Period 2) -", equipe),
+         y = "Player",
+         x = "Number of passes") +
+    scale_fill_manual(values = c("Forward" = "blue", "Backward" = "red")) +
+    theme_minimal() +
+    theme(axis.text.x = element_text(angle = 45, hjust = 1))
+  
+  # Ajouter le graphique à la liste
+  graphiques[[equipe]] <- gg_equipe2
+  
+  print(gg_equipe2)
+}
+
+```
+
+```{r}
+# Liste des équipes uniques dans le dataframe
+equipes_uniques_total <- unique(directions_passes_total_match$team.name)
+
+graphiques <- list()
+
+# Créer un diagramme en barres groupées pour chaque équipe
+for (equipe in equipes_uniques_total) {
+  # Filtrer les données pour l'équipe actuelle
+  equipe_data_total <- subset(directions_passes_total_match, team.name == equipe)
+  
+  # Créer un diagramme en barres groupées
+  gg_equipe_total <- ggplot(equipe_data_total, aes(y = player.name, x = Count, fill = Pass_Direction)) +
+    geom_bar(stat = "identity", position = "dodge", width = 0.8) +
+    labs(title = paste("Total number of forward and backward passes \n per player during the first match - ", equipe),
+         y = "Player",
+         x = "Number of passes") +
+    scale_fill_manual(values = c("Forward" = "blue", "Backward" = "red")) +
+    theme_minimal() +
+    theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  scale_fill_brewer(palette = "Set3")
+  
+  # Ajouter le graphique à la liste
+  graphiques[[equipe]] <- gg_equipe_total
+  
+  # Afficher le graphique actuel
+  print(gg_equipe_total)
+}
+
+```
+
+```{r}
+# Remplacer les valeurs NA par "Total" dans la colonne 'period'
+total_passes_summary_per_player <- total_passes_summary_per_player %>%
+  mutate(period = ifelse(is.na(period), "Total", period))
+
+# Créer un diagramme à barres groupées par équipe et par période
+ggplot(total_passes_summary_per_player, aes(x = player.name, y = Count, fill = Pass_Direction)) +
+  geom_bar(stat = "identity", position = "dodge", width = 0.8) +
+  facet_grid(team.name ~ period, scales = "free_y") +  # Crée une grille de facettes
+  labs(title = "Total number of forward and backward passes \n per player",
+       x = "Player",
+       y = "Number of passes") +
+  scale_fill_manual(values = c("Forward" = "blue", "Backward" = "red")) +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+```
+
+**SHOTS ANALYSIS**
+
+```{r}
+shots_goals_Spa_1match = WC2023_Spain_firstmatch_dataframe  %>%
+group_by(team.name) %>%
+summarise(shots = sum(type.name=="Shot", na.rm = TRUE),
+goals = sum(shot.outcome.name=="Goal", na.rm = TRUE))
+
+library(ggplot2)
+
+font_size <- 8
+ggplot(data = shots_goals_Spa_1match,
+aes(x = reorder(team.name, shots), y = shots)) + #1
+geom_bar(stat = "identity", width = 0.5) + #2
+labs(y="Number of Shots", title= "Shots number for the first match of Spain") + #3
+theme(axis.title.y = element_blank()) + #4
+scale_y_continuous( expand = c(0,0)) + #5
+coord_flip() + #6
+theme(axis.title.y=element_blank(),text=element_text(family = "Arial"))
+```
+
+```{r}
+shots_goals_Spa_lmatch = WC2023_Spain_lastmatch_dataframe  %>%
+group_by(team.name) %>%
+summarise(shots = sum(type.name=="Shot", na.rm = TRUE),
+goals = sum(shot.outcome.name=="Goal", na.rm = TRUE))
+
+library(ggplot2)
+
+font_size <- 8
+ggplot(data = shots_goals_Spa_lmatch,
+aes(x = reorder(team.name, shots), y = shots)) + #1
+geom_bar(stat = "identity", width = 0.5) + #2
+labs(y="Number of shots", title= "Shots number for the final match (Spain-England)") + #3
+theme(axis.title.y = element_blank()) + #4
+scale_y_continuous( expand = c(0,0)) + #5
+coord_flip() + #6
+theme(axis.title.y=element_blank(),text=element_text(family = "Arial"))
+```
+
+**PLAYER SHOTS PER 90**  
+Table pour obtenir des informations sur les joueurs (notamment le nombre de shots par joueuse) sur le denier match de la
+coupe du monde
+
+```{r}
+player_shots= WC2023_Spain_firstmatch_dataframe %>%
+ group_by(player.name, player.id) %>%
+ summarise(shots = sum(type.name=="Shot", na.rm = TRUE)) #1
+
+# Filtrer les lignes avec des valeurs non manquantes (non NA) pour 'shots'
+player_shots <- player_shots %>% 
+  filter(!is.na(shots))
+
+#minutes played in each match by ever player in the dataset.
+player_minutes = get.minutesplayed(WC2023_dataframe) #2
+# Ajouter une colonne 'player.name' à 'player_minutes' sans duplication
+player_minutes <- player_minutes %>%
+  left_join(WC2023_Spain_firstmatch_dataframe %>%
+              select(player.id, player.name), by = "player.id") %>%
+  distinct(player.id, .keep_all = TRUE)  # Conserver uniquement une ligne par joueur
+  
+
+#we group that by player and sum it altogether to get their total minutes played
+total_player_minutes_SE = player_minutes %>%
+  group_by(player.id) %>%
+  summarise(minutes = sum(MinutesPlayed)) #3
+  
+  
+
+# Ajouter une colonne 'player.name' à 'player_minutes' sans duplication
+total_player_minutes_SE <- total_player_minutes_SE %>%
+  left_join(WC2023_Spain_firstmatch_dataframe %>%
+              select(player.id, player.name, team.name), by = "player.id") %>%
+  distinct(player.id, .keep_all = TRUE)  # Conserver uniquement une ligne par joueur
+
+
+player_shots  = left_join(player_shots, total_player_minutes) #4
+player_shots = player_shots  %>% mutate(nineties = minutes/90) #5
+player_shots = player_shots  %>% mutate(shots_per90 = shots/nineties) #6
+
+# Filtrer les lignes avec des valeurs non manquantes (non NA) pour 'shots'
+player_shots <- player_shots %>% 
+  filter(!is.na(shots) & !is.na(player.name))
+
+
+# Réorganiser les données en fonction du nombre de shots (dans l'ordre décroissant)
+player_shots <- player_shots %>%
+  arrange(desc(shots))
+
+# Créer un histogramme du temps de jeu par joueuse
+histogram <- ggplot(player_shots, aes(x = shots, y = reorder(player.name, -shots), fill = team.name)) +
+  geom_bar(stat = "identity") +
+  labs(title = "Bar chart of the number of shots per player \n during the final match ",
+       x = "Number of shots",
+       y = "Player") +
+  theme_minimal() +
+  scale_fill_brewer(palette = "Set3")
+
+# Afficher la légende de couleur pour l'équipe d'appartenance
+histogram + theme(legend.position = "right")
+```
+
+>> **Différents types de shots**
+
+```{r}
+type_shots <- WC2023_Spain_firstmatch_dataframe[, c("type.name", "player.name","player.id","period","team.name","shot.type.name","shot.type.id","shot.technique.name")]
+
+#WC2023_Spain_firstmatch_dataframe$shot.outcome.id
+
+type_shots <- type_shots %>%
+  filter(type.name == "Shot",team.name == "Spain")
+```
+
+```{r}
+# Compter le nombre de chaque type de tir
+shots_type_counts <- type_shots %>%
+  group_by(shot.technique.name) %>%
+  summarise(count = n())
+
+# Créer un diagramme à barres pour la répartition des types de tirs
+ggplot(shots_type_counts, aes(x = reorder(shot.technique.name, count), y = count)) +
+  geom_bar(stat = "identity") +
+  labs(title = "Repartition of the different shots techniques during the first match of Spain", x = "Technique of shots", y = "Number of shots") +
+  theme_minimal()
+
+```
+
+```{r}
+# Filtrer les lignes pour l'équipe d'Espagne
+spain_shots <- type_shots %>%
+  filter(team.name == "Spain")
+
+# Compter le nombre de tirs par joueuse
+shots_by_spanish_player <- spain_shots %>%
+  group_by(player.name) %>%
+  summarise(Shots = n())
+
+# Trier les joueuses par ordre croissant du nombre de tirs
+shots_by_spanish_player <- shots_by_spanish_player[order(shots_by_spanish_player$Shots),]
+
+# Créer un diagramme à barres
+ggplot(shots_by_spanish_player, aes(x = reorder(player.name, Shots), y = Shots)) +
+  geom_bar(stat = "identity") +
+  geom_text(aes(label = Shots), vjust = -0.5, size = 3) +
+  labs(title = "Number of shots per Spanish player during the first match of Spain ",
+       x = "Player", y = "Number of shots") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+```
+
+**UNSUCCESSFUL SHOTS**
+
+We talk about an "Unsuccessfull shot" when the shot does not result in a goal ! (in the dataset : id 97 = goal)
+
+```{r}
+unsuccessfull_shots <- WC2023_Spain_firstmatch_dataframe[, c("timestamp","type.name", "player.name","player.id","period","team.name","shot.type.name","shot.type.id","shot.technique.name","shot.outcome.id","shot.outcome.name")]
+
+unsuccessfull_shots <- unsuccessfull_shots %>%
+  filter(team.name == "Spain")
+
+unsuccessfull_shots <- unsuccessfull_shots %>%
+  filter(shot.outcome.id != 97 )
+```
+
+```{r}
+
+# Compter le nombre de tirs ratés par "shot.outcome.name"
+count_unsuccessful_shots <- unsuccessfull_shots %>%
+  group_by(shot.outcome.name) %>%
+  summarise(Nombre_de_tirs_rates = n()) %>%
+  arrange(Nombre_de_tirs_rates)
+
+# Définir l'ordre souhaité
+order_levels <- c("Post", "Wayward", "Saved", "Off T", "Blocked")
+
+# Affichage
+ggplot(count_unsuccessful_shots, aes(x = factor(shot.outcome.name, levels = order_levels), y = Nombre_de_tirs_rates)) +
+  geom_bar(stat = "identity") +
+  labs(title = "Number of unsuccessful shots according to the result \n obtained for Spain during their first match",
+       x = "Shot Outcome", y = "Number of unsuccessful shots") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  scale_y_continuous(limits = c(0, 20))
+
+
+```
+
+Different types of outcome for a shot : 
+
+* Blocked : un tir qui a été interrompu ou bloqué par l'action d'un défenseur de l'équipe adverse, empêchant ainsi le tir de progresser vers le but et potentiellement de marquer un but ou des points.
+
+* Off T : un tir dont la trajectoire de départ a conduit la balle en dehors des poteaux ou des buts, ce qui signifie qu'il n'a pas réussi à marquer un but ou des points.
+
+* Saved : un tir qui a été arrêté ou stoppé avec succès par le gardien de but de l'équipe adverse.
+
+* Wayward : un tir qui ne représente pas une menace pour le but adverse car il est très éloigné de la cible, manque de puissance ou a été mal exécuté par le joueur.
+
+* Post : un tir qui a frappé l'un des trois poteaux du but.
+
+* Saved to post : le gardien de but a réussi à stopper un tir, mais la balle rebondit contre la structure du but, elle est encore en jeu, ce qui signifie que l'action continue.
+
+```{r}
+# Calculer le nombre total de shots ratés
+nombre_total_shots_rates <- unsuccessfull_shots %>%
+  count()
+
+# Afficher le nombre total de shots ratés
+cat("Total number of unsuccessful shots : ", nombre_total_shots_rates$n, "\n")
+```
+
+**GOALS**
+
+```{r}
+type_goals <- WC2023_Spain_firstmatch_dataframe[, c("type.name", "player.name","player.id","period","team.name","shot.type.name","shot.type.id","shot.outcome.name","shot.technique.name")]
+
+type_goals <- type_goals %>%
+  filter(shot.outcome.name == "Goal",team.name == "Spain")
+```
+
+```{r}
+# Compter le nombre de chaque type de tir
+goals_technique_counts <- type_goals %>%
+  group_by(shot.technique.name) %>%
+  summarise(count = n())
+
+# Créer un diagramme à barres pour la répartition des types de tirs
+ggplot(goals_technique_counts, aes(x = reorder(shot.technique.name, count), y = count)) +
+  geom_bar(stat = "identity") +
+  labs(title = "Repartition of the different shots techniques that conduct to a goal \n during the first match of Spain", x = "Technique of successful shots", y = "Number of shots") +
+  theme_minimal()
+
+```
+
+Different shots techniques : 
+
+* Backheel : un tir effectué en utilisant le talon du pied, une technique de tir qui nécessite une grande habileté technique.
+* Normal : aucune des autres techniques spéciales
+* Volley : la balle est restée en suspension dans l'air ou en contact avec les joueurs ou les équipements sportifs sans jamais toucher le sol avant qu'un tir ne soit effectué.
+* Half-volley : le contact avec la balle se produit après que la balle a rebondi sur le sol ou après avoir été dans les airs, mais avant de toucher le sol à nouveau.
+* Overhead Kick : le joueur était en position dos au but adverse au moment où il a effectué le tir.
+
+```{r}
+# Filtrer les lignes pour l'équipe d'Espagne
+spain_goals <- type_goals %>%
+  filter(team.name == "Spain")
+
+# Compter le nombre de tirs par joueuse
+goals_by_spanish_player <- spain_goals %>%
+  group_by(player.name) %>%
+  summarise(Shots_goals = n())
+
+# Trier les joueuses par ordre croissant du nombre de tirs
+goals_by_spanish_player <-goals_by_spanish_player[order(goals_by_spanish_player$Shots_goals),]
+
+# Affichage
+ggplot(goals_by_spanish_player, aes(x = reorder(player.name, Shots_goals), y = Shots_goals)) +
+  geom_bar(stat = "identity") +
+  geom_text(aes(label = Shots_goals), vjust = -0.5, size = 3) +
+  labs(title = "Number of goals per Spanish player ",
+       x = "Player", y = "Number of goals") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+```
+
+**Différents schémas de jeu mis en place**
+
+```{r}
+# Créer un résumé des schémas de jeu et leurs fréquences
+summary_schemas_first <- WC2023_Spain_firstmatch_dataframe %>%
+  group_by(play_pattern.name) %>%
+  summarise(Frequency = n()) %>%
+  mutate(Percentage = (Frequency / sum(Frequency)) * 100)
+
+summary_schemas_first$Percentage <- round(summary_schemas_first$Percentage, 2)
+
+# Créer un histogramme des schémas de jeu pour le premier match avec les fréquences en pourcentage
+histogram_schemas_jeu_first <- ggplot(summary_schemas_first, aes(x = reorder(play_pattern.name, Percentage), y = Percentage)) +
+  geom_bar(fill = "#FFFACD", color = "black", stat = "identity") +
+  geom_text(aes(label = paste0(Percentage, "%")), vjust = -0.5, size = 3) +
+  labs(title = "Bar chart of Spain's play patterns \n in their first match",
+       x = "Name of play pattern",
+       y = "Frequency (%)") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1),
+        plot.title = element_text(hjust = 0.5)) +
+  scale_y_continuous(limits = c(0, 60))
+
+# Afficher l'histogramme des schémas de jeu pour le premier match
+print(histogram_schemas_jeu_first)
+
+```
+
+Different play patterns : 
+
+* From Corner : l'événement décrit fait partie de la séquence de jeu qui a suivi l'exécution d'un corner dans un match sportif, et il peut être lié à des actions visant à marquer un but ou à créer des occasions de but.
+
+* From Free Kick : l'événement en question a eu lieu dans la continuité de jeu qui a suivi l'exécution d'un coup franc
+
+* From Throw In : l'événement décrit a eu lieu dans la continuité de jeu qui a suivi l'exécution d'un jet de touche, et il peut être lié à des actions visant à avancer dans le jeu ou à créer des opportunités d'attaque.
+
+* From Counter : l'événement décrit a eu lieu dans le cadre d'une contre-attaque ( position défensive où l'équipe tente de récupérer la balle et de la déplacer rapidement vers le but adverse pour marquer un but.)
+
+* From Goal Kick : l'événement décrit a eu lieu dans la continuité de jeu qui a suivi l'exécution d'un dégagement de but, et il peut être lié à des actions visant à recommencer la construction de jeu depuis la défense de l'équipe.
+
+* From Keeper : l'événement décrit a eu lieu dans la continuité de jeu qui a suivi la distribution du gardien de but, et il peut être lié à des actions visant à relancer l'attaque de l'équipe après la récupération de la balle par le gardien de but.
+
+* From Kick Off : l'événement décrit a eu lieu dans la continuité de jeu qui a suivi le coup d'envoi, marquant ainsi le début du match, et il peut être lié à des actions visant à prendre le contrôle de la balle et à établir une stratégie de jeu.
+
+```{r}
+# Créer un résumé des schémas de jeu et leurs fréquences
+summary_schemas_last <- WC2023_Spain_lastmatch_dataframe %>%
+  group_by(play_pattern.name) %>%
+  summarise(Frequency = n()) %>%
+  mutate(Percentage = (Frequency / sum(Frequency)) * 100)
+
+summary_schemas_last$Percentage <- round(summary_schemas_last$Percentage, 2)
+
+# Créer un histogramme des schémas de jeu pour le premier match avec les fréquences en pourcentage
+  
+# Définir l'ordre souhaité
+order_levels <- c("From Keeper", "From Kick Off", "Other", "From Goal Kick", "From Corner", "From Free Kick", "From Throw In", "Regular Play")
+
+# Créer un histogramme des schémas de jeu pour le dernier match avec les fréquences en pourcentage
+histogram_schemas_jeu_last <- ggplot(summary_schemas_last, aes(x = factor(play_pattern.name, levels = order_levels), y = Percentage)) +
+  geom_bar(fill = "#FFFACD", color = "black", stat = "identity") +
+  geom_text(aes(label = paste0(Percentage, "%")), vjust = -0.5, size = 3) +
+  labs(title = "Bar chart of Spain's play patterns \n in the final",
+       x = "Name of play pattern",
+       y = "Frequency (%)") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1),
+        plot.title = element_text(hjust = 0.5)) +  # Centrer le titre
+  scale_y_continuous(limits = c(0, 60))
+
+
+# Afficher les deux histogrammes côte à côte
+library(gridExtra)
+grid.arrange(histogram_schemas_jeu_first, histogram_schemas_jeu_last, ncol = 2)
+
+```
+
+```{r}
+# Compter le nombre d'actions pour chaque équipe
+actions_count <- WC2023_Spain_firstmatch_dataframe %>%
+  group_by(team.name) %>%
+  summarise(count = n())
+
+# Créer un diagramme en barres de la part de chaque équipe dans le début d'une possession en contrôle de la balle
+ggplot(actions_count, aes(x = team.name, y = count, fill = team.name)) +
+  geom_bar(stat = "identity") +
+  labs(title = "Total number of actions per team during the first match of Spain",
+       x = "Team",
+       y = "Number of actions") +
+  scale_fill_brewer(palette = "Set3") +
+  theme_minimal() +
+  theme(legend.position = "none")  # Supprime la légende des couleurs si elle n'est pas nécessaire
+
+```
+
+**DUELS EVENTS**
+
+1.  Actions défensives entreprises par une équipe pour récupérer
+    rapidement le ballon après avoir perdu la possession en jeu ouvert
+    (c'est-à-dire lorsque le jeu est en cours, par opposition à des
+    situations telles que les coups de pied arrêtés). Le pressing
+    implique généralement une pression agressive sur l'adversaire pour
+    tenter de récupérer la balle et reprendre le contrôle du jeu. Ces
+    actions se produisent dans un délai de 5 secondes après la perte de
+    possession.
+
+--\> les joueurs d'une équipe exercent une pression sur les adversaires
+dans les 5 secondes qui suivent une récupération de balle pendant une
+phase de jeu ouvert. Cela peut être une stratégie visant à capitaliser
+rapidement sur la récupération de la balle pour créer une opportunité
+d'attaque ou à empêcher l'adversaire de construire une action offensive.
+
+```{r}
+# Créer un graphique à barres empilées pour représenter la proportion d'actions défensives par équipe
+# Calculer le nombre de TRUE dans la colonne "counterpress" par équipe
+team_counts <- WC2023_Spain_firstmatch_dataframe %>%
+  group_by(team.name) %>%
+  summarise(true_count = sum(counterpress, na.rm = TRUE))
+
+# Créer un graphique à barres pour représenter le nombre de TRUE par équipe
+ggplot(team_counts, aes(x = team.name, y = true_count, fill = team.name)) +
+  geom_bar(stat = "identity") +
+  labs(title = "Number of defensive actions per team to quickly regain possession \n after losing the ball in open play during the first match of Spain",
+       x = "Team",
+       y = "Number of defensive actions") +
+  scale_fill_manual(values = c("#B2DFDB", "#FFFACD")) +  # Couleurs des équipes
+  theme_minimal()
+
+```
+
+**POSSESSION DU BALLON**
+
+Début de la possession en contrôle de la balle : Lorsqu'une équipe
+commence à contrôler la balle, cela signifie qu'elle a pris le contrôle
+du jeu en ayant la balle en sa possession. Cela peut se produire de
+plusieurs manières, comme par une passe d'un coéquipier ou en reprenant
+la balle à l'adversaire.
+
+```{r}
+# Calculer le pourcentage de début de possession en contrôle de balle par équipe
+possession_counts_P1 <- WC2023_Spain_lastmatch_dataframe %>%
+  filter(period == 1) %>%
+  group_by(team.name) %>%
+  summarise(count = n()) %>%
+  ungroup() %>%
+  mutate(percentage = count / sum(count) * 100)
+  
+possession_counts_P2 <- WC2023_Spain_lastmatch_dataframe %>%
+  filter(period==2) %>%
+  group_by(team.name) %>%
+  summarise(count = n()) %>%
+  ungroup() %>%
+  mutate(percentage = count / sum(count) * 100)
+
+# Créer un diagramme en camembert avec les pourcentages par équipe
+ggplot(possession_counts_P1, aes(x = "", y = percentage, fill = team.name)) +
+  geom_bar(stat = "identity", width = 1) +
+  geom_text(aes(label = paste0(round(percentage, 1), "%")), position = position_stack(vjust = 0.5)) +  # Ajouter les étiquettes de pourcentage
+  coord_polar("y", start = 0) +
+  labs(title = "Distribution of ball possession at the start of the game \n by team in Spain's final match (P1)",
+       fill = "Team") +
+  theme_minimal() +
+  scale_fill_brewer(palette = "Set1") +
+  theme(legend.position = "bottom")  # Facultatif : placer la légende en bas
+
+# Créer un diagramme en camembert avec les pourcentages par équipe
+ggplot(possession_counts_P2, aes(x = "", y = percentage, fill = team.name)) +
+  geom_bar(stat = "identity", width = 1) +
+  geom_text(aes(label = paste0(round(percentage, 1), "%")), position = position_stack(vjust = 0.5)) +  # Ajouter les étiquettes de pourcentage
+  coord_polar("y", start = 0) +
+  labs(title = "Distribution of ball possession at the start of the game \n by team in Spain's final match (P2)",
+       fill = "Team") +
+  theme_minimal() +
+  scale_fill_brewer(palette = "Set1") +
+  theme(legend.position = "bottom")  # Facultatif : placer la légende en bas
+
+```
+
+```{r}
+# Calculer le pourcentage de début de possession en contrôle de balle par équipe
+possession_counts_last <- WC2023_Spain_lastmatch_dataframe %>%
+  group_by(team.name) %>%
+  summarise(count_last = n()) %>%
+  ungroup() %>%
+  mutate(percentage_last = count_last / sum(count_last) * 100)
+
+# Affichage
+ggplot(possession_counts_last, aes(x = "", y = percentage_last, fill = team.name)) +
+  geom_bar(stat = "identity", width = 1) +
+  geom_text(aes(label = paste0(round(percentage_last, 1), "%")), position = position_stack(vjust = 0.5)) +  # Ajouter les étiquettes de pourcentage
+  coord_polar("y", start = 0) +
+  labs(title = "Distribution of ball possession at the start of the game \n by team in the final match",
+       fill = "Team") +
+  theme_minimal() +
+  scale_fill_brewer(palette = "Set3") +
+  theme(legend.position = "bottom")  # Facultatif : placer la légende en bas
+
+
+```
+
+
+```{r}
+spain_players_start_possession <- WC2023_Spain_firstmatch_dataframe[, c("team.name","type.name", "player.name","possession_team.name")]
+
+spain_players_start_possession <- spain_players_start_possession %>%
+  mutate(possession_team.name = str_remove(possession_team.name, " Women's"))
+
+```
+
+```{r}
+# Filtrer les actions du Costa Rica où la possession est à l'Espagne
+other_team_actions_spain_possession <- spain_players_start_possession %>%
+  filter(team.name != "Spain", possession_team.name == "Spain")
+
+# Compter le nombre d'actions
+nombre_actions_other <- nrow(other_team_actions_spain_possession)
+
+# Afficher le nombre d'actions
+cat("Nombre d'actions de l'autre équipe avec début de possession à l'Espagne : ", nombre_actions_other, "\n")
+
+```
+
+```{r}
+# Filtrer les actions de l'Espagne où la possession est à l'Espagne
+spain_team_actions_possessions <- spain_players_start_possession %>%
+  filter(team.name == "Spain", possession_team.name == "Spain")
+
+# Compter le nombre d'actions
+nombre_actions_possessions <- nrow(spain_team_actions_possessions)
+
+# Afficher le nombre d'actions
+cat("Nombre d'actions de l'Espagne avec début de possession à l'Espagne : ", nombre_actions_possessions, "\n")
+
+```
+
+```{r}
+# Filtrer les actions de l'Espagne où la possession est à l'Espagne
+spain_team_actions_not_possessions <- spain_players_start_possession %>%
+  filter(team.name == "Spain", possession_team.name != "Spain")
+
+# Compter le nombre d'actions
+nombre_actions_not_possessions <- nrow(spain_team_actions_not_possessions)
+
+# Afficher le nombre d'actions
+cat("Nombre d'actions de l'Espagne avec début de possession de l'autre équipe : ", nombre_actions_not_possessions, "\n")
+
+```
+
+```{r}
+# Regrouper par équipe et compter le nombre d'actions
+possessions_par_equipe <- WC2023_Spain_firstmatch_dataframe %>%
+  group_by(possession_team.name) %>%
+  summarise(Nombre_d_actions = n())
+
+# Afficher le nombre d'actions pour chaque équipe
+print(possessions_par_equipe)
+```
+
+**ETUDE DES PASSES**
+
+**1.**  Longueur des passes
+
+```{r}
+# Calculer la somme des longueurs de passes pour chaque équipe
+pass_lengths_summary <- WC2023_Spain_firstmatch_dataframe %>%
+  group_by(team.name) %>%
+  summarise(total_pass_length = sum(pass.length, na.rm = TRUE))
+
+# Créer un graphique à barres pour représenter la somme des longueurs de passes par équipe
+ggplot(pass_lengths_summary, aes(x = team.name, y = total_pass_length, fill = team.name)) +
+  geom_bar(stat = "identity") +
+  labs(title = "Sum of pass lengths per team for Spain's first match",
+       x = "Team",
+       y = "Sum of pass lengths") +
+  scale_fill_brewer(palette = "Set3") +
+  theme_minimal()
+
+# Déterminer quelle équipe a effectué le plus de passes longues
+team_with_longest_passes <- pass_lengths_summary %>%
+  arrange(desc(total_pass_length)) %>%
+  head(1)
+
+cat("The team with the most long passes is:", team_with_longest_passes$team.name)
+
+```
+
+```{r}
+# Calculer la somme des longueurs de passes pour chaque équipe
+pass_lengths_summary <- WC2023_Spain_lastmatch_dataframe %>%
+  group_by(team.name) %>%
+  summarise(total_pass_length = sum(pass.length, na.rm = TRUE))
+
+# Créer un graphique à barres pour représenter la somme des longueurs de passes par équipe
+ggplot(pass_lengths_summary, aes(x = team.name, y = total_pass_length, fill = team.name)) +
+  geom_bar(stat = "identity") +
+  labs(title = "Sum of pass lengths per team for Spain's last match (the final)",
+       x = "Team",
+       y = "Sum of pass lengths") +
+  scale_fill_brewer(palette = "Set1") +
+  theme_minimal()
+
+# Déterminer quelle équipe a effectué le plus de passes longues
+team_with_longest_passes <- pass_lengths_summary %>%
+  arrange(desc(total_pass_length)) %>%
+  head(1)
+
+cat("The team with the most long passes is:", team_with_longest_passes$team.name)
+
+```
+
+On voit que ce n'est pas parce que l'espagne est l'équipe qui fait les passes les plus longues (graphiques précédents), que c'est elle qui gagne le plus de terrain grâce à ses passes. 
+
+```{r}
+#Calcul de la distance gagnée par la passe 
+distance_gained_pass_summary <- WC2023_Spain_firstmatch_dataframe %>%
+  group_by(team.name) %>%
+  summarise(total_distance_gained_by_pass = sum(pass.end_location.x - location.x, na.rm = TRUE)) 
+
+print (distance_gained_pass_summary )
+
+# Créer un graphique à barres pour représenter la distance gagnée par les passes par équipe
+ggplot(distance_gained_pass_summary, aes(x = team.name, y = total_distance_gained_by_pass, fill = team.name)) +
+  geom_bar(stat = "identity") +
+  labs(title = "Distance gained by pass per team during the final",
+       x = "Team",
+       y = "Distance gained by pass") +
+  scale_fill_brewer(palette = "Set1") +
+  theme_minimal()
+
+```
+
+First match : le costa rica a fait des passes moins longues au total sur l'ensemble du match, mais elle a du faire des passes permettant essentiellement de faire progresser le jeu vers l'avant et donc de gagner du terrain.
+
+Final match : Interéssant car L'Angleterre a gagné le plus de terrain avec les passesmais l'Espagne a gagné le match.
+
+**2.** Lien entre les passes qui ont servi d'assistance à un tir, mais où le tir n'a pas abouti à un but (pass.shot_assist) et le type de passe (pass.type_name)
+
+Pass.shot_assist == "TRUE" si la passe a contribué à créer une occasion de tir, mais que le tir final n'a pas abouti à un but.
+
+```{r}
+# 1er match
+
+# Filtrer les passes qui ont servi d'assistance à un tir non réussi
+passes_tir_non_but <- WC2023_Spain_firstmatch_dataframe %>%
+  filter(pass.shot_assist == TRUE,!is.na(pass.type.name))
+
+
+# Graphique pour représenter le lien entre le type de passe et les tirs non réussis
+ggplot(passes_tir_non_but, aes(x = pass.type.name, fill = team.name), na.rm = TRUE) + 
+  geom_bar() +
+  labs(title = "Links between types of pass and shots that \n assisted a shot but did not result in a goal",
+       x = "Pass type",
+       y = "Number of unsuccessful shots") +
+  scale_fill_brewer(palette = "Set1") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+
+```
+
+```{r}
+# Filtrer les passes (type.id == 30) qui n'ont pas abouti à un tir (pass.shot_assist == TRUE)
+passes_not_assisting_shot <- WC2023_Spain_firstmatch_dataframe %>%
+  filter(type.id == 30, pass.shot_assist == TRUE)
+
+# Compter le nombre de passes par équipe
+passes_counts <- passes_not_assisting_shot %>%
+  group_by(team.name) %>%
+  summarise(Count = n())
+
+# Graphique pour représenter le nombre de passes qui n'ont pas abouti à un tir
+ggplot(passes_counts, aes(x = team.name, y = Count, fill = team.name)) +
+  geom_bar(stat = "identity") +
+  labs(title = "Number of passes used to assist an unsuccessful shot in Spain's first match",
+       x = "Team",
+       y = "Number of passes") +
+  scale_fill_manual(values = c("#B2DFDB", "#FFFACD")) +  # Couleurs des équipes
+  theme_minimal()
+```
+
+```{r}
+# Filtrer les passes (type.id == 30) qui n'ont pas abouti à un tir (pass.shot_assist == TRUE)
+passes_not_assisting_shot2 <- WC2023_Spain_lastmatch_dataframe %>%
+  filter(type.id == 30, pass.shot_assist == TRUE)
+
+# Compter le nombre de passes par équipe
+passes_counts2 <- passes_not_assisting_shot2 %>%
+  group_by(team.name) %>%
+  summarise(Count = n())
+
+# Graphique pour représenter le nombre de passes qui n'ont pas abouti à un tir
+ggplot(passes_counts2, aes(x = team.name, y = Count, fill = team.name)) +
+  geom_bar(stat = "identity") +
+  labs(title = "Number of passes used to assist an unsuccessful shot in Spain's last match",
+       x = "Team",
+       y = "Number of passes") +
+  scale_fill_manual(values = c("#87CEEB", "#FFFACD")) +  # Couleurs des équipes
+  theme_minimal()
+```
+
+```{r}
+# Filtrer les passes qui n'ont pas abouti à un tir (pass.shot_assist == TRUE)
+passes_non_tirées <- WC2023_Spain_firstmatch_dataframe %>%
+  filter(pass.shot_assist == TRUE)
+
+# Créer un résumé des schémas de jeu pour chaque équipe
+schémas_de_jeu_summary <- passes_non_tirées %>%
+  group_by(team.name, play_pattern.name) %>%
+  summarise(Count = n())
+
+# Graphique pour représenter les schémas de jeu par équipe
+ggplot(schémas_de_jeu_summary, aes(x = team.name, y = Count, fill = play_pattern.name)) +
+  geom_bar(stat = "identity") +
+  labs(title = "Playing patterns when the pass does not result \n  in a successful shot during Spain's first match",
+       x = "Team",
+       y = "Number of passes",
+       fill = "Playing pattern") +
+  scale_fill_brewer(palette = "Set3") +  # Couleurs pour les schémas de jeu
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+```
+
+```{r}
+# Filtrer les passes qui n'ont pas abouti à un tir (pass.shot_assist == TRUE)
+passes_non_tirées2 <- WC2023_Spain_lastmatch_dataframe %>%
+  filter(pass.shot_assist == TRUE)
+
+# Créer un résumé des schémas de jeu pour chaque équipe
+schémas_de_jeu_summary2 <- passes_non_tirées2 %>%
+  group_by(team.name, play_pattern.name) %>%
+  summarise(Count = n())
+
+# Graphique pour représenter les schémas de jeu par équipe
+ggplot(schémas_de_jeu_summary2, aes(x = team.name, y = Count, fill = play_pattern.name)) +
+  geom_bar(stat = "identity") +
+  labs(title = "Playing patterns when the pass does not result \n  in a successful shot during the final match",
+       x = "Team",
+       y = "Number of passes",
+       fill = "Playing pattern") +
+  scale_fill_brewer(palette = "Set3") +  # Couleurs pour les schémas de jeu
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+```
+
+**3.** Passes qui ont abouti à un but : pass.goal_assist == TRUE
+
+```{r}
+# Filtrer les passes qui ont abouti à un but : pass.goal_assist == TRUE
+passes_tirées <- WC2023_Spain_firstmatch_dataframe %>%
+  filter(pass.goal_assist == TRUE)
+
+
+# Créer un résumé des schémas de jeu pour chaque équipe
+schémas_de_jeu_summary3 <- passes_tirées %>%
+  group_by(team.name, play_pattern.name) %>%
+  summarise(Count = n())
+
+# Créer un graphique à barres empilées pour représenter les schémas de jeu par équipe
+ggplot(schémas_de_jeu_summary3, aes(x = team.name, y = Count, fill = play_pattern.name)) +
+  geom_bar(stat = "identity") +
+  labs(title = "Playing patterns when the pass result in a goal during the final",
+       x = "Team",
+       y = "Number of passes",
+       fill = "Playing pattern") +
+  scale_fill_brewer(palette = "Set3") +  # Couleurs pour les schémas de jeu
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+```
+
+Il y en a qu'un seul type de play pattern pour ce type de passe pour le premier et dernier match. Seulement des données pour l'Espagne car 3-0 contre le Costa Rica et 1-0 contre l'Angleterre.
+
+**4** Passes ratées qui n'ont pas atteint un coéquipier
+
+unsuccessful shots : shot.outcome.id != 97
+unsuccessful passes (pas atteint un coéquipier) :  pass.outcome.id == 9
+
+```{r}
+# Charger la bibliothèque dplyr et ggplot2 si ce n'est pas déjà fait
+library(dplyr)
+
+# Filtrer les passes qui n'ont pas atteint un coéquipier (pass.outcome.id == 9)
+passes_ratées <- WC2023_Spain_firstmatch_dataframe %>%
+  filter(pass.outcome.id == 9)
+
+# Créer un résumé des passes ratées par joueur
+passes_ratées_summary <- passes_ratées %>%
+  group_by(player.name, player.id, team.name) %>%
+  summarise(Passes_Ratées = n())
+
+# Affichage pour représenter les passes ratées par joueur
+ggplot(passes_ratées_summary, aes(x = Passes_Ratées, y = reorder(player.name, -Passes_Ratées), fill = team.name)) +
+  geom_bar(stat = "identity") +
+  labs(title = "Number of unsuccessful passes per player \n in Spain’s first match",
+       x = "Number of unsuccessful passes",
+       y = "Player") +
+  theme_minimal() +
+  scale_fill_brewer(palette = "Set3") +
+
+theme(legend.position = "right")
+
+```
+
+--> Joueuse avec le nombre de passes ratées le plus élevé
+
+```{r}
+
+# Filtrer les passes qui n'ont pas atteint un coéquipier (pass.outcome.id == 9)
+passes_ratées <- WC2023_Spain_firstmatch_dataframe %>%
+  filter(pass.outcome.id == 9)
+
+# Créer un résumé des passes ratées par joueur
+passes_ratées_summary <- passes_ratées %>%
+  group_by(player.name, player.id, team.name) %>%
+  summarise(Passes_Ratées = n())
+
+# Sélectionner la joueuse avec le plus de passes ratées pour chaque équipe
+top_passes_ratées <- passes_ratées_summary %>%
+  group_by(team.name) %>%
+  top_n(1, wt = Passes_Ratées)
+
+# Graphique pour représenter les passes ratées par la joueuse ayant le plus de passes ratées
+ggplot(top_passes_ratées, aes(x = Passes_Ratées, y = player.name, fill = team.name)) +
+  geom_bar(stat = "identity") +
+  labs(title = "Players with the most unsuccessful passes in Spain's first match ",
+       x = "Number of unsuccessfull passes",
+       y = "Player") +
+  theme_minimal() +
+  scale_fill_brewer(palette = "Set3") +
+
+theme(legend.position = "right")
+
+```
+
+```{r}
+# Sélectionner la joueuse avec le plus de passes ratées pour chaque équipe
+most_passes_ratées_first <- passes_ratées_summary %>%
+  group_by(team.name) %>%
+  top_n(1, wt = Passes_Ratées) %>%
+  select(player.name, player.id, team.name)
+
+print(most_passes_ratées_first)
+
+```
+
+```{r}
+# Charger la bibliothèque dplyr et ggplot2 si ce n'est pas déjà fait
+library(dplyr)
+
+# Filtrer les passes qui n'ont pas atteint un coéquipier (pass.outcome.id == 9)
+passes_ratées2 <- WC2023_Spain_lastmatch_dataframe %>%
+  filter(pass.outcome.id == 9)
+
+# Créer un résumé des passes ratées par joueur
+passes_ratées_summary2 <- passes_ratées2 %>%
+  group_by(player.name, player.id, team.name) %>%
+  summarise(Passes_Ratées2 = n())
+
+# Créer un graphique à barres pour représenter les passes ratées par joueur
+ggplot(passes_ratées_summary2, aes(x = Passes_Ratées2, y = reorder(player.name, -Passes_Ratées2), fill = team.name)) +
+  geom_bar(stat = "identity") +
+  labs(title = "Number of unsuccessful passes per player \n in Spain’s last game (final game)",
+       x = "Number of unsuccessful passes",
+       y = "Player") +
+  theme_minimal() +
+  scale_fill_brewer(palette = "Set1") +
+
+# Afficher la légende de couleur pour l'équipe d'appartenance
+theme(legend.position = "right")
+
+```
+
+```{r}
+# Filtrer les passes de l'équipe "Spain Women's" et compter le nombre total de passes
+passes_spain_women <- WC2023_dataframe %>%
+  filter(team.name == "Spain", type.id == 30)
+
+total_passes_spain_women <- nrow(passes_spain_women)
+
+# Filtrer les passes ratées (pass.outcome.id == 9) de l'équipe "Spain Women's" et compter le nombre de passes ratées
+passes_ratées_spain_women <- WC2023_dataframe %>%
+  filter(team.name == "Spain", pass.outcome.id == 9, type.id == 30)
+
+nombre_passes_ratées_spain_women <- nrow(passes_ratées_spain_women)
+
+# Calculer la proportion de passes ratées par rapport au nombre total de passes pour l'équipe "Spain Women's"
+proportion_passes_ratées_spain_women <- nombre_passes_ratées_spain_women / total_passes_spain_women
+
+# Filtrer les passes de l'équipe "England Women's" et compter le nombre total de passes
+passes_england_women <- WC2023_dataframe %>%
+  filter(team.name == "England", type.id == 30)
+
+total_passes_england_women <- nrow(passes_england_women)
+
+# Filtrer les passes ratées (pass.outcome.id == 9) de l'équipe "England Women's" et compter le nombre de passes ratées
+passes_ratées_england_women <- WC2023_dataframe %>%
+  filter(team.name == "England", pass.outcome.id == 9, type.id == 30)
+
+nombre_passes_ratées_england_women <- nrow(passes_ratées_england_women)
+
+# Calculer la proportion de passes ratées par rapport au nombre total de passes pour l'équipe "England Women's"
+proportion_passes_ratées_england_women <- nombre_passes_ratées_england_women / total_passes_england_women
+
+# Comparer les proportions entre les deux équipes
+proportion_passes_ratées_spain_women
+proportion_passes_ratées_england_women
+
+```
+
+```{r}
+# Créer un DataFrame contenant les proportions des deux équipes
+proportions_passes_ratees_df <- data.frame(
+  Equipe = c("Spain", "England"),
+  Proportion = c(proportion_passes_ratées_spain_women, proportion_passes_ratées_england_women)
+)
+
+# Affichage
+ggplot(proportions_passes_ratees_df, aes(x = Equipe, y = Proportion, fill = Equipe)) +
+  geom_bar(stat = "identity") +
+  labs(title = "Proportion of unsuccessful passes per team in the final match ",
+       x = "Team",
+       y = "Proportion of unsuccessful passes") +
+  scale_fill_manual(values = c("Spain" = "#FFFACD", "England" = "red")) +  # Couleurs des équipes
+  theme_minimal()
+```
+
+```{r}
+# Filtrer les passes qui n'ont pas atteint un coéquipier (pass.outcome.id == 9)
+passes_non_atteintes2 <- WC2023_Spain_firstmatch_dataframe %>%
+  filter(pass.outcome.id == 9)
+
+passes_non_atteintes2[is.na(passes_non_atteintes2[,"pass.type.name"]),"pass.type.name"] = "Null"
+
+# Créer un résumé des types de passes pour chaque équipe
+passes_summary2 <- passes_non_atteintes2 %>%
+  group_by(team.name, pass.type.name) %>%
+  summarise(Count = n(),na.rm = TRUE) %>%
+  filter(pass.type.name != "Null")
+  
+
+# Graphique pour représenter les types de passes par équipe
+ggplot(passes_summary2, aes(x = team.name, y = Count, fill = pass.type.name)) +
+  geom_bar(stat = "identity",na.rm = TRUE) +
+  labs(title = "Types of passes when the ball has not reached a teammate \n during the first match of Spain",
+       x = "Team",
+       y = "Number of passes",
+       fill = "Type of pass") +
+  scale_fill_brewer(palette = "Set3",na.value = "grey") +  # Couleurs pour les types de passes
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+```
+
+**5.**  Comparer lors du premier et du dernier match la proportion de passes "ratées" qui n'ont pas atteint un coéquipier
+
+```{r}
+
+# Filtrer les passes qui n'ont pas atteint un coéquipier (pass.outcome.id == 9) et ne sont pas des lignes avec des données manquantes
+passes_non_atteintes <- WC2023_Spain_firstmatch_dataframe %>%
+  filter(!is.na(pass.outcome.id), pass.outcome.id == 9, type.id == 30)
+
+# Calculer le nombre total de passes (type.id == 30) par équipe
+passes_par_equipe <- WC2023_Spain_firstmatch_dataframe %>%
+  filter(type.id == 30) %>%
+  group_by(team.name) %>%
+  summarise(Total_Passes = n())
+
+# Rejoindre les données de passes non atteintes avec le nombre total de passes par équipe
+proportion_passes_non_atteintes <- passes_non_atteintes %>%
+  left_join(passes_par_equipe, by = "team.name") %>%
+  group_by(team.name) %>%
+  summarise(Proportion = n() / Total_Passes)
+
+# Supprimer les doublons et garder une seule ligne par équipe
+proportion_passes_non_atteintes <- proportion_passes_non_atteintes %>% distinct(team.name, .keep_all = TRUE)
+
+ggplot(proportion_passes_non_atteintes, aes(x = team.name, y = Proportion, fill = team.name)) +
+  geom_bar(stat = "identity") +
+  geom_text(aes(label = scales::percent(Proportion, accuracy = 0.01)), vjust = -0.5, size = 3) +
+  labs(title = "Proportion of passes when the ball does not reach a teammate  \n and is still in play in Spain's first match",
+       x = "Team",
+       y = "Proportion") +
+  scale_fill_brewer(palette = "Set3") +  # Couleurs des équipes
+  scale_y_continuous(labels = scales::percent_format(scale = 1, accuracy = 0.01)) +  # Format y-axis labels
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+```
+
+```{r}
+
+# Filtrer les passes qui n'ont pas atteint un coéquipier (pass.outcome.id == 9) et ne sont pas des lignes avec des données manquantes
+passes_non_atteintes_last <- WC2023_Spain_lastmatch_dataframe %>%
+  filter(!is.na(pass.outcome.id), pass.outcome.id == 9, type.id == 30)
+
+# Calculer le nombre total de passes (type.id == 30) par équipe
+passes_par_equipe_last <- WC2023_Spain_lastmatch_dataframe %>%
+  filter(type.id == 30) %>%
+  group_by(team.name) %>%
+  summarise(Total_Passes_last = n())
+
+# Rejoindre les données de passes non atteintes avec le nombre total de passes par équipe
+proportion_passes_non_atteintes_last <- passes_non_atteintes_last %>%
+  left_join(passes_par_equipe_last, by = "team.name") %>%
+  group_by(team.name) %>%
+  summarise(Proportion_last = n() / Total_Passes_last)
+
+# Supprimer les doublons et garder une seule ligne par équipe
+proportion_passes_non_atteintes_last <- proportion_passes_non_atteintes_last %>% distinct(team.name, .keep_all = TRUE)
+
+ggplot(proportion_passes_non_atteintes_last, aes(x = team.name, y = Proportion_last, fill = team.name)) +
+  geom_bar(stat = "identity") +
+  geom_text(aes(label = scales::percent(Proportion_last, accuracy = 0.01)), vjust = -0.5, size = 3) +
+  labs(title = "Proportion of passes when the ball does not reach a teammate  \n and is still in play in Spain's final match",
+       x = "Team",
+       y = "Proportion") +
+  scale_fill_brewer(palette = "Set3") +  # Couleurs des équipes
+  scale_y_continuous(labels = scales::percent_format(scale = 1, accuracy = 0.01)) +  # Format y-axis labels
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+```
+
+```{r}
+
+# Filtrer les passes qui n'ont pas atteint un coéquipier (pass.outcome.id == 9) et ne sont pas des lignes avec des données manquantes
+passes_non_atteintes_first <- WC2023_Spain_firstmatch_dataframe %>%
+  filter(!is.na(pass.outcome.id), pass.outcome.id == 9, type.id == 30)
+
+passes_non_atteintes_last <- WC2023_Spain_lastmatch_dataframe %>%
+  filter(!is.na(pass.outcome.id), pass.outcome.id == 9, type.id == 30)
+
+# Calculer le nombre total de passes (type.id == 30) par équipe pour le premier match
+passes_par_equipe_first <- WC2023_Spain_firstmatch_dataframe %>%
+  filter(type.id == 30) %>%
+  group_by(team.name) %>%
+  summarise(Total_Passes_first = n())
+
+# Calculer le nombre total de passes (type.id == 30) par équipe pour le dernier match
+passes_par_equipe_last <- WC2023_Spain_lastmatch_dataframe %>%
+  filter(type.id == 30) %>%
+  group_by(team.name) %>%
+  summarise(Total_Passes_last = n())
+
+# Rejoindre les données de passes non atteintes avec le nombre total de passes par équipe pour le premier match
+proportion_passes_non_atteintes_first <- passes_non_atteintes_first %>%
+  left_join(passes_par_equipe_first, by = "team.name") %>%
+  group_by(team.name) %>%
+  summarise(Proportion_first = n() / Total_Passes_first)
+
+# Rejoindre les données de passes non atteintes avec le nombre total de passes par équipe pour le dernier match
+proportion_passes_non_atteintes_last <- passes_non_atteintes_last %>%
+  left_join(passes_par_equipe_last, by = "team.name") %>%
+  group_by(team.name) %>%
+  summarise(Proportion_last = n() / Total_Passes_last)
+
+# Combinez les données des deux matchs
+combined_data <- full_join(proportion_passes_non_atteintes_first, proportion_passes_non_atteintes_last, by = "team.name")
+combined_data$Team <- combined_data$team.name
+combined_data <- combined_data %>% select(-team.name)
+
+```
+
+```{r}
+combined_data <- combined_data %>%
+  mutate(Team = case_when(
+    Team == "Spain" ~ "Spain - First match",
+    Team == "Costa Rica" ~ "Costa Rica - First match",
+    Team == "England Women's" ~ "England - Final match",
+    Team == "Spain Women's" ~ "Spain - Final match",
+    TRUE ~ Team  # Conserve les autres valeurs inchangées
+  ))
+```
+
+
+```{r}
+# Créer un graphique en barres groupées pour comparer les proportions entre le premier et le dernier match
+ggplot(combined_data, aes(x = Team, fill = Team)) +
+  geom_bar(aes(y = Proportion_first, group = 1), stat = "identity", position = position_dodge(width = 0.8), width = 0.4) +
+  geom_bar(aes(y = Proportion_last, group = 1), stat = "identity", position = position_dodge(width = 0.8), width = 0.4) +
+  labs(title = "Comparison of Proportions of Unsuccessful Passes \n between Spain's First match and the final",
+       x = "Team",
+       y = "Proportion") +
+  scale_fill_brewer(palette = "Set3") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  theme(legend.position = "bottom")
+
+```
+
+**BUTS CONTRE SON CAMP**
+
+```{r}
+number_own_goals <- WC2023_Spain_firstmatch_dataframe %>%
+  filter(type.id == 25) %>%
+  group_by(team.name)
+```
+
+```{r}
+# Calculer la proportion de buts contre son camp (type.id == 25) pour chaque équipe
+proportion_own_goals <- WC2023_Spain_firstmatch_dataframe %>%
+  filter(type.id == 25) %>%
+  group_by(team.name) %>%
+  summarise(Proportion = n() / nrow(WC2023_Spain_firstmatch_dataframe))
+
+# Graphique pour représenter la proportion de buts contre son camp pour chaque équipe
+ggplot(proportion_own_goals, aes(x = team.name, y = Proportion, fill = team.name)) +
+  geom_bar(stat = "identity") +
+  labs(title = "Proportion of own goals per team during the final",
+       x = "Team",
+       y = "Proportion") +
+  scale_fill_manual(values = c("blue", "red")) +  # Couleurs des équipes
+  theme_minimal()
+
+```
+
+**PLOT PASSES**
+
+unsuccessful shots : shot.outcome.id != 97
+unsuccessful passes (pas atteint un coéquipier) :  pass.outcome.id == 9
+
+--> FIRST MATCH
+
+a) Teresa Abelleira Dueñas : Player who has touched the ball the most times
+
+```{r}
+library(SBpitch)
+
+passes = WC2023_Spain_firstmatch_dataframe %>%
+  filter(type.name=="Pass" & is.na(pass.outcome.name) & 
+player.id==49835) %>% 
+  filter(pass.end_location.x>=102 & pass.end_location.y<=62 &
+pass.end_location.y>=18) 
+
+create_Pitch() +
+  geom_segment(data = passes, aes(x = location.x, y = location.y,
+                                  xend = pass.end_location.x, yend = pass.end_location.y), 
+               lineend = "round", size = 0.5, colour = "#000000", arrow =
+arrow(length = unit(0.07, "inches"), ends = "last", type = "open")) + #3 
+  labs(title = "Teresa Abelleira Dueñas, Spain, Completed Box Passes", subtitle = "WC2023") + #4 
+  scale_y_reverse() + #5 
+  coord_fixed(ratio = 105/100) 
+```
+```{r}
+shots = WC2023_Spain_firstmatch_dataframe %>%
+  filter(type.name=="Shot" & is.na(shot.outcome.name))  %>% 
+  filter(pass.end_location.x>=102 & pass.end_location.y<=62 &
+pass.end_location.y>=18) 
+
+create_Pitch() +
+  geom_segment(data = shots, aes(x = location.x, y = location.y,
+                                  xend = pass.end_location.x, yend = pass.end_location.y), 
+               lineend = "round", size = 0.5, colour = "#000000", arrow =
+arrow(length = unit(0.07, "inches"), ends = "last", type = "open")) + #3 
+  labs(title = "Spain, Shots", subtitle = "WC2023") + #4 
+  scale_y_reverse() + #5 
+  coord_fixed(ratio = 105/100) 
+```
+
+```{r}
+passes2 = WC2023_Spain_firstmatch_dataframe %>%
+  filter(type.name=="Pass" & is.na(pass.outcome.name) &
+player.id==49835 & period == 1) %>% 
+  filter(pass.end_location.x<102 & pass.end_location.y<=62 & pass.end_location.y>=18) 
+
+create_Pitch() +
+  geom_segment(data = passes2, aes(x = location.x, y = location.y,
+                                  xend = pass.end_location.x, yend = pass.end_location.y), 
+               lineend = "round", size = 0.5, colour = "#000000", arrow =
+arrow(length = unit(0.07, "inches"), ends = "last", type = "open")) + #3 
+  labs(title = "Teresa Abelleira Dueñas, Period 1, Spain", subtitle = "WC2023") + #4 
+  scale_y_reverse() + #5 
+  coord_fixed(ratio = 105/100) 
+```
+
+```{r}
+passes2_second = WC2023_Spain_firstmatch_dataframe %>%
+  filter(type.name=="Pass" & is.na(pass.outcome.name) &
+player.id==49835 & period == 2) %>% 
+  filter(pass.end_location.x<102 & pass.end_location.y<=62 & pass.end_location.y>=18) 
+
+create_Pitch() +
+  geom_segment(data = passes2_second, aes(x = location.x, y = location.y,
+                                  xend = pass.end_location.x, yend = pass.end_location.y), 
+               lineend = "round", size = 0.5, colour = "#000000", arrow =
+arrow(length = unit(0.07, "inches"), ends = "last", type = "open")) + #3 
+  labs(title = "Teresa Abelleira Dueñas, Period 2, Spain", subtitle = "WC2023") + #4 
+  scale_y_reverse() + #5 
+  coord_fixed(ratio = 105/100) 
+```
+
+b) Esther Gonzalez Rodríguez (Player with the most number of shots)
+
+```{r}
+library(SBpitch)
+
+passes_bis = WC2023_Spain_firstmatch_dataframe %>%
+  filter(type.name=="Pass" & is.na(pass.outcome.name) &
+player.id==50146) %>% 
+  filter(pass.end_location.x>=102 & pass.end_location.y<=62 &
+pass.end_location.y>=18) 
+
+create_Pitch() +
+  geom_segment(data = passes_bis, aes(x = location.x, y = location.y,
+                                  xend = pass.end_location.x, yend = pass.end_location.y), 
+               lineend = "round", size = 0.5, colour = "#000000", arrow =
+arrow(length = unit(0.07, "inches"), ends = "last", type = "open")) + #3 
+  labs(title = "Esther Gonzalez Rodríguez, Spain, Completed Box Passes", subtitle = "WC2023") + #4 
+  scale_y_reverse() + #5 
+  coord_fixed(ratio = 105/100) 
+```
+
+```{r}
+passes2_bis = WC2023_Spain_firstmatch_dataframe %>%
+  filter(type.name=="Pass" & is.na(pass.outcome.name) &
+player.id==50146 & period == 1) %>% 
+  filter(pass.end_location.x<102 & pass.end_location.y<=62 & pass.end_location.y>=18) 
+
+create_Pitch() +
+  geom_segment(data = passes2_bis, aes(x = location.x, y = location.y,
+                                  xend = pass.end_location.x, yend = pass.end_location.y), 
+               lineend = "round", size = 0.5, colour = "#000000", arrow =
+arrow(length = unit(0.07, "inches"), ends = "last", type = "open")) + #3 
+  labs(title = "Esther Gonzalez Rodríguez, Period 1, Spain", subtitle = "WC2023") + #4 
+  scale_y_reverse() + #5 
+  coord_fixed(ratio = 105/100) 
+```
+
+```{r}
+passes2_second_bis = WC2023_Spain_firstmatch_dataframe %>%
+  filter(type.name=="Pass" & is.na(pass.outcome.name) &
+player.id==50146 & period == 2) %>% 
+  filter(pass.end_location.x<102 & pass.end_location.y<=62 & pass.end_location.y>=18) 
+
+create_Pitch() +
+  geom_segment(data = passes2_second_bis, aes(x = location.x, y = location.y,
+                                  xend = pass.end_location.x, yend = pass.end_location.y), 
+               lineend = "round", size = 0.5, colour = "#000000", arrow =
+arrow(length = unit(0.07, "inches"), ends = "last", type = "open")) + #3 
+  labs(title = "Esther Gonzalez Rodríguez, Period 2, Spain", subtitle = "WC2023") + #4 
+  scale_y_reverse() + #5 
+  coord_fixed(ratio = 105/100) 
+```
+
+--> DERNIER MATCH
+
+```{r}
+
+# Filtrer les passes qui n'ont pas atteint un coéquipier (pass.outcome.id == 9)
+passes_ratées2 <- WC2023_Spain_lastmatch_dataframe %>%
+  filter(pass.outcome.id == 9)
+
+# Créer un résumé des passes ratées par joueur
+passes_ratées_summary2 <- passes_ratées2 %>%
+  group_by(player.name, player.id, team.name) %>%
+  summarise(Passes_Ratées2= n())
+
+# Sélectionner la joueuse avec le plus de passes ratées pour chaque équipe
+top_passes_ratées2 <- passes_ratées_summary2 %>%
+  group_by(team.name) %>%
+  top_n(1, wt = Passes_Ratées2)
+
+# Graphique pour représenter les passes ratées par la joueuse ayant le plus de passes ratées
+ggplot(top_passes_ratées2, aes(x = Passes_Ratées2, y = player.name, fill = team.name)) +
+  geom_bar(stat = "identity") +
+  labs(title = "Players with the most unsucessful passes in Spain's final match ",
+       x = "Number of unsucessful passes",
+       y = "Player") +
+  theme_minimal() +
+  scale_fill_brewer(palette = "Set3") +
+
+theme(legend.position = "right")
+
+```
+
+```{r}
+# Sélectionner la joueuse avec le moins de passes ratées pour chaque équipe
+most_passes_ratées_last <- passes_ratées_summary2 %>%
+  group_by(team.name) %>%
+  top_n(1, wt = Passes_Ratées2) %>%
+  select(player.name, player.id, team.name)
+
+print(most_passes_ratées_last)
+
+```
+
+**SHOTS / xG -- FIRST MATCH**
+
+xG (Expected Goals) : 
+•	prédicteur le plus précis des performances futures de l'équipe et du joueur disponibles
+•	mesurer la probabilité qu’un tir aboutisse à un but (intervalle de confiance de 95%)
+•	base d'informations historiques de plans avec des caractéristiques similaires
+•	facteurs pris en compte : distance jusqu'à l'objectif, angle par rapport au but, partie du corps avec laquelle le tir a été pris, et type d'assistance ou d'action antérieure
+•	StatsBomb xG ajoute des informations clés telles que la position et le statut du gardien de but, la position de tous les attaquants et défenseurs dans le cadre, et la hauteur d'impact de prise de vue pour donner une image plus précise de la qualité du hasard
+•	qualité moyenne du tir (xG/shot) : mettre en évidence les joueurs prenant de bons ou de mauvais tirs.
+
+```{r}
+events_match_spain <- get.matchFree(Matches[Matches$match_id == '3893791', ])
+```
+
+```{r}
+get.events <- function(username, password,
+                      match_id, version = "v8",
+                      baseurl = "https://data.statsbomb.com/api/"){
+  events <- tibble()
+  Events.url <- paste0(baseurl, version, "/events/", match_id)
+  raw.events.api <- GET(url = Events.url, authenticate(username, password))
+  events.string <- rawToChar(raw.events.api$content)
+  Encoding(events.string) <- "UTF-8"
+  events <- fromJSON(events.string, flatten = T)
+  if(length(events) == 0){
+    events <- tibble()
+  } else {
+    events <- events %>% mutate(match_id = match_id)
+  }
+  return(events)
+}
+```
+
+```{r}
+
+xGA = events_match_spain %>%
+  filter(type.name=="Shot") %>% #1 
+  select(shot.key_pass_id, xGA = shot.statsbomb_xg) #2
+
+shot_assists = left_join(events_match_spain, xGA, by = c("id" = "shot.key_pass_id")) %>% #3
+  select(team.name, player.name, player.id, type.name, pass.shot_assist, pass.goal_assist, xGA ) %>% #4
+  filter(pass.shot_assist==TRUE | pass.goal_assist==TRUE) #5
+```
+
+```{r}
+clasico <- WC2023_dataframe %>% 
+  filter(match_id == 3893791) %>% 
+  mutate(shot.statsbomb_xg = if_else(is.na(shot.statsbomb_xg), 
+                                     0, shot.statsbomb_xg))
+
+clasico_xg <- clasico %>% 
+  group_by(team.name) %>% 
+  summarize(tot_xg = sum(shot.statsbomb_xg) %>% signif(digits = 2)) %>% 
+  mutate(team_label = glue::glue("{team.name}: {tot_xg} xG"))
+
+clasico <- clasico %>% 
+  left_join(clasico_xg, by = "team.name") %>% 
+  mutate(player_label = case_when(
+    shot.outcome.name == "Goal" ~ glue::glue("{player.name}: {shot.statsbomb_xg %>% signif(digits = 2)} xG"),
+    TRUE ~ ""))
+```
+
+--> xG Timeline - Explications : 
+
+1. Timeline (Chronologie) : Il y a une ligne de temps qui traverse le graphique, montrant la durée totale du match en minutes. Cela est réalisé avec la fonction geom_segment() en spécifiant les coordonnées x et xend de 0 à 95 (représentant les minutes) et en maintenant les arguments y et yend à zéro, car il n'y a pas de mouvement sur l'axe y.
+
+2. Marquage des buts : Il y a des segments verts qui mettent en évidence les moments où un but a été marqué dans le match. Cela est fait à l'aide de la fonction geom_rect() en utilisant des données où la variable "shot.outcome.name" a la valeur "Goal". Un petit tampon de deux minutes de chaque côté du moment du but est ajouté pour créer un surlignage rectangulaire autour du but.
+
+3. Événements xG (Expected Goals) : Il y a des points de différentes tailles (en fonction de la valeur de xG) qui représentent les événements xG tout au long du match. Cela est réalisé à l'aide de la fonction geom_point().
+
+```{r}
+clasico_xg_timelineplot <- clasico %>% 
+  ggplot() +
+  geom_segment(x = 0, xend = 95,
+               y = 0, yend = 0) +
+  geom_rect(data = clasico %>% filter(shot.outcome.name == "Goal"),
+            aes(xmin = minute - 2, xmax = minute + 2,
+                ymin = -0.005, ymax = 0.005), 
+            alpha = 0.3, fill = "green") +
+  geom_label_repel(data = clasico %>% filter(shot.outcome.name == "Goal"),
+             aes(x = minute, y = 0,
+                 color = team.name, label = player_label), 
+             nudge_x = 4, nudge_y = 0.003, family = font_family,
+             show.legend = FALSE) +
+  geom_point(data = clasico %>% filter(shot.statsbomb_xg != 0),
+             shape = 21, stroke = 1.5,
+             aes(x = minute, y = 0, 
+                 size = shot.statsbomb_xg, fill = team.name)) +
+  scale_color_manual(values = c("Spain" = "#a50044",
+                                "Costa Rica" = "black")) +
+  scale_fill_manual(values = c("Spain" = "#a50044",
+                                "Costa Rica" = "white")) +
+  facet_wrap(vars(team_label), ncol = 1) +
+  scale_x_continuous(breaks = seq(0, 95, by = 5),
+                     labels = c(seq(0, 40, by = 5), "HT", 
+                                seq(50, 90, by = 5), "FT"),
+                     limits = c(-3, 95),
+                     expand = c(0.01, 0)) +
+  scale_y_continuous(limits = c(-0.005, 0.005),
+                     expand = c(0, 0)) +
+  scale_size(range = c(2, 6)) +
+  labs(caption = "By @R_by_Ryo") +
+  theme_minimal() +
+  theme(legend.position = "none",
+        strip.text = element_text(size = 16, family = font_family, 
+                                  face = "bold", color = "grey20"),
+        plot.caption = element_text(family = font_family, color = "grey20",
+                                    hjust = 0),
+        axis.title = element_blank(),
+        axis.text = element_blank(),
+        panel.grid.minor = element_blank(),
+        panel.grid.major.y = element_blank())
+  
+clasico_xg_timelineplot
+```
+
+--> xG Accumulated Plot - Explications : 
+
+Le graphique a pour but de montrer l'évolution du total des Expected Goals (xG) des équipes au fil du temps au cours d'un match de football. Les Expected Goals sont une mesure statistique qui évalue la probabilité qu'un tir se transforme en but en fonction de divers facteurs tels que la position du tir, le type de tir, etc.
+
+Le graphique permet de visualiser plusieurs aspects du match à travers le prisme des xG :
+
+1. Évolution du total xG : Le graphique montre comment le total cumulé des xG des équipes évolue au fur et à mesure que le match progresse en minutes. Cela peut aider à identifier les moments de domination d'une équipe sur l'autre.
+
+2. Répartition des tirs à haut xG et bas xG : Le graphique peut également révéler comment les tirs à haut xG et à bas xG sont répartis tout au long du match. Par exemple, il peut montrer si une équipe a accumulé un grand nombre de tirs à haut xG à un moment donné, indiquant une forte pression offensive.
+
+Ce graphique offre une vue d'ensemble de l'évolution des xG tout au long du match, permettant d'analyser la dynamique de la partie et de déterminer quand et comment les équipes ont généré des opportunités de but en fonction de la durée du match.
+
+IMPORTANT !!! Ainsi ce graphique montre l'importance de la finition et de la qualité des tirs, car avoir un xG élevé ne garantit pas nécessairement la victoire si les occasions ne sont pas exploitées efficacement.
+
+```{r}
+clasico_rollsum <- clasico %>% 
+  group_by(minute, team.name, period) %>% 
+  summarize(sumxg = sum(shot.statsbomb_xg)) %>% 
+  ungroup() %>% 
+  group_by(team.name) %>% 
+  mutate(rollsum = lag(cumsum(sumxg)),
+         rollsum = if_else(is.na(rollsum), 0, rollsum)) %>% 
+  select(team.name, minute, rollsum, sumxg) %>%
+  mutate(rollsum = case_when(
+    row_number() == n() & sumxg != 0 ~ rollsum + sumxg,
+    TRUE ~ rollsum
+  ))
+
+clasico_rollsum <- clasico_rollsum %>% 
+  left_join(clasico %>% filter(shot.outcome.name == "Goal") %>% select(minute, shot.outcome.name, team.name, player.name), 
+            by = c("minute", "team.name")) %>% 
+  mutate(rollsum_goal = rollsum + sumxg,
+         minute_goal = minute + 1,
+         player_label = case_when(
+           shot.outcome.name == "Goal" ~ glue::glue("{player.name}: {sumxg %>% signif(digits = 2)} xG"),
+           TRUE ~ ""))
+
+glimpse(clasico_rollsum)
+```
+
+```{r}
+tot_clasico_df <- clasico_xg %>% 
+  pull(tot_xg)
+
+clasico_rollsumxg_plot <- clasico_rollsum %>% 
+  ggplot(aes(x = minute, y = rollsum, 
+             group = team.name, color = team.name)) +
+  geom_line(size = 2.5) +
+  geom_label_repel(data = clasico_rollsum %>% filter(shot.outcome.name == "Goal"),
+             aes(x = minute_goal, y = rollsum_goal, 
+                 color = team.name, label = player_label), 
+             nudge_x = 6, nudge_y = 0.15, family = font_family,
+             show.legend = FALSE) +
+  geom_point(data = clasico_rollsum %>% filter(shot.outcome.name == "Goal"),
+             aes(x = minute_goal, y = rollsum_goal, color = team.name), show.legend = FALSE,
+             size = 5, shape = 21, fill = "white", stroke = 1.25) +
+  scale_color_manual(values = c("Spain" = "#a50044",
+                                 "Costa Rica" = "#000000"),
+                     labels = c("<b style ='color:#a50044'>Spain</b>", 
+                                "<b style='color: black'>Costa Rica</b>")) +
+  scale_fill_manual(values = c("Spain" = "#a50044",
+                               "Costa Rica" = "#000000")) +
+  scale_x_continuous(breaks = c(seq(0, 90, by = 5), 94),
+                     labels = c(seq(0, 40, by = 5), "HT", 
+                                seq(50, 90, by = 5), "FT"),
+                     expand = c(0.01, 0),
+                     limits = c(0, 94)) +
+  scale_y_continuous(sec.axis = sec_axis(~ ., breaks = tot_clasico_df)) +
+  labs(title = "<b style='color: black'>Costa Rica: 0 </b> <br> <b style ='color:#a50044'>Spain: 3 </b>",
+       subtitle = "Spain's first match",
+       x = NULL,
+       y = "Expected Goals") +
+  theme_minimal() +
+  theme(text = element_text(family = font_family),
+        plot.title = element_markdown(size = 40, family = font_family),
+        plot.subtitle = element_text(size = 18, family = font_family,
+                                     color = "grey20"),
+        axis.title = element_text(size = 18, color = "grey20"),
+        axis.text = element_text(size = 16, face = "bold"),
+        panel.grid.minor = element_blank(),
+        legend.text = element_markdown(size = 16),
+        legend.position = c(0.2, 0.95),
+        legend.direction = "horizontal",
+        legend.title = element_blank()) + 
+  scale_color_manual(
+    values = rev(c("Spain" = "#a50044", "Costa Rica" = "#000000")),
+    labels = c("<b style ='color:#a50044'>Spain</b>", "<b style='color: black'>Costa Rica</b>")
+    )
+
+
+clasico_rollsumxg_plot
+```
+
+Analyse des résultats : 
+
+* Expected Goals (xG) global plus élevé --> plus d'occasions de marquer des buts en fonction des statistiques
+
+* Lors du premier match, l'Espagne avait un Expected Goals (xG) global plus élevé que celui du Costa Rica (4.20 > 0.13). Cela signifie que l'Espagne a eu plus d'occasions de marquer des buts en fonction des statistiques. Cela se confirme sur l'ensemble du match car seule l'équipe d'Espagne a marqué des buts. 
+
+* Au contraire, si malgré un xG plus élevé, l'Espagne avait marqué moins de buts que l'équipe adverse, cela signifierait que l'équipe adverse a été plus efficace dans la conversion de ses occasions en buts, même si, au cours du match, l'Espagne a eu plus d'opportunités en termes de xG.
+
+--> Passes in the last third of the soccer field
+
+```{r}
+roll_final_pass <- clasico %>% 
+  group_by(team.name, minute) %>% 
+  mutate(count = case_when(
+    type.name == "Pass" & location.x >= 80 ~ 1L,
+    TRUE ~ 0L
+  )) %>% 
+  select(team.name, minute, count) %>% 
+  ungroup()
+
+```
+
+```{r}
+first_min <- clasico$minute %>% unique() %>% first()
+last_min <- clasico$minute %>% unique() %>% last()
+minute <- c(first_min:last_min)
+team.name <- c("Costa Rica", "Spain")
+
+crossing(minute, team.name) %>% slice(26:32)
+```
+
+```{r}
+rolling_sum <- tibbletime::rollify(.f = sum, window = 5)
+
+roll_clasico_pass <- crossing(minute, team.name) %>%
+  left_join(roll_final_pass, by = c("minute", "team.name")) %>% 
+  group_by(team.name, minute) %>% 
+  summarize_all(sum) %>% 
+  ungroup() %>% 
+  mutate(count = ifelse(is.na(count), 0, count)) %>% 
+  group_by(team.name) %>% 
+  mutate(rollsum = rolling_sum(count),
+         rollsum = ifelse(is.na(rollsum), 0, rollsum)) %>% 
+  group_by(team.name) %>% 
+  select(-count) %>% 
+  filter(row_number() %% 5 == 1 | row_number() == n())
+
+roll_clasico_pass %>% head(5)
+```
+
+* Ce graphique permet de visualiser le nombre de passes dans le dernier tiers du terrain à des intervalles de 5 minutes tout en mettant en évidence les équipes en utilisant des cercles colorés et des bordures épaisses pour les points.
+
+```{r}
+finalthird_rollingplot <- roll_clasico_pass %>% 
+  ggplot(aes(x = minute, y = rollsum, 
+             group = team.name)) +
+  geom_line(data = roll_clasico_pass,
+            size = 1.2) +
+  geom_point(data = roll_clasico_pass,
+             aes(fill = team.name),
+             size = 3.5, shape = 21, stroke = 2.5) +
+  scale_x_continuous(breaks = seq(0, 95, by = 5),
+                     labels = c(seq(0, 40, by = 5), "HT", 
+                                seq(50, 90, by = 5), "FT"),
+                     limits = c(-3, 95),
+                     expand = c(0.01, 0)) +
+  scale_y_continuous(breaks = seq(0, 30, by = 5),
+                     labels = seq(0, 30, by = 5)) +
+  scale_fill_manual(values = c("Spain" = "#a50044",
+                               "Costa Rica" = "white"),
+                    labels = c("<b style ='color:#a50044'>Spain</b>", 
+                               "<b style='color: black'>Costa Rica</b>")) +
+  labs(title = "<b style='color: black'>Costa Rica: 1 </b><b style='color: black; font-size: 20pt'>(1st, 40 pts.)</b><br> <b style ='color:#a50044'>Spain: 3 </b><b style ='color:#a50044; font-size: 20pt'>(2nd, 34 pts.)</b>",
+       subtitle = "Spain's first match",
+       x = NULL,
+       y = "Final Third Passes") +
+  theme_minimal() +
+  theme(text = element_text(family = font_family),
+        plot.title = element_markdown(size = 40, family = font_family),
+        plot.subtitle = element_text(size = 18, family = font_family,
+                                     color = "grey20"),
+        axis.title = element_text(size = 18, color = "grey20"),
+        axis.text = element_text(size = 16, face = "bold"),
+        panel.grid.minor = element_blank(),
+        legend.text = element_markdown(size = 14),
+        legend.position = c(0.25, 0.95),
+        legend.direction = "horizontal",
+        legend.title = element_blank())
+
+finalthird_rollingplot
+```
+
+
+```{r}
+ggsave(filename = "finalthird_rollingplot_1st_match.png", # Nom du fichier de sortie
+       plot = finalthird_rollingplot,         # Le plot que vous souhaitez enregistrer
+       width = 10,                            # Largeur de l'image en pouces
+       height = 6,                            # Hauteur de l'image en pouces
+       units = "in",                          # Unité de mesure
+       dpi = 300)
+```
+
+
+```{r}
+library(gtable)
+library(grid)
+
+png(filename = here::here("match_plot_RAW.png"), 
+    width = 1000, height = 1600, res = 144, bg = "white")
+
+one <- ggplotGrob(finalthird_rollingplot)
+two <- ggplotGrob(clasico_xg_timelineplot)
+
+gg <- rbind(one, two, size = "last")
+gg$widths <- unit.pmax(one$widths, two$widths)
+
+grid.newpage()
+grid.draw(gg)
+dev.off()
+```
+
+```{r}
+font_family <- "Arial"  # Remplacez "Arial" par la police que vous souhaitez utiliser
+
+clasico_match_plot <- plot_grid(finalthird_rollingplot,
+          clasico_xg_timelineplot, ncol = 1,
+          align = "hv", axis = "l") 
+
+ggsave(plot = clasico_match_plot,
+       filename = here::here("match_plot_RAW.png"),
+       height = 18, width = 10)
+
+```
+
+```{r}
+clasico_match_plot
+```
+
+```{r}
+ggsave(filename = "match_plot_1st_match.png", # Nom du fichier de sortie
+       plot = clasico_match_plot,         # Le plot que vous souhaitez enregistrer
+       width = 10,                            # Largeur de l'image en pouces
+       height = 18,                            # Hauteur de l'image en pouces
+       units = "in",                          # Unité de mesure
+       dpi = 300) 
+```
+
+--> Pass Partner Plots
+
+* graphique comptant la fréquence à laquelle deux joueurs se sont échangé des passes entre eux.
+
+* la majorité des valeurs dans la variable "pass.outcome.name" sont définies sur NA et vous pourriez penser qu'il y a beaucoup de données manquantes. Cependant, les valeurs vides sont en réalité toutes des passes "Complètes". Pour rendre cela plus explicite, nous pouvons utiliser la fonction fct_explicit_na() pour définir ces NA comme "Complètes" tout en transformant également la variable en facteur.
+
+* nous disposons de données pour plusieurs matchs de l'Espagne, nous avons créé un "graphique de base" pour chaque match et stocké à l'intérieur du cadre de données via la fonction de nesting. 
+
+```{r}
+pass_received_all_box <- WC2023_dataframe %>% 
+  mutate(pass.outcome.name = fct_na_value_to_level(pass.outcome.name, "Complete")) %>%
+  filter(type.name == "Pass",
+         team.name == "Spain",
+         pass.outcome.name == "Complete",
+         ## Only passes from open play
+         !play_pattern.name %in% c("From Corner", "From Free Kick",
+                                   "From Throw In"),
+         ## Only passes that ended up inside the box:
+         pass.end_location.x >= 102 & pass.end_location.y <= 62 &
+           pass.end_location.y >= 18) %>% 
+  select(player.name, pass.recipient.name, 
+         match_id,
+         position.name, position.id,
+         location.x, location.y,
+         pass.end_location.x, pass.end_location.y,
+         contains("pass")) %>% 
+  #group_by(match_id) %>% 
+  add_count(player.name, pass.recipient.name, name = "pass_num") %>% 
+  ungroup() %>% 
+  mutate(player.name = glue::glue("{player.name}: {pass_num}")) %>% 
+  mutate(pass_duo = map2(player.name, pass.recipient.name, ~c(.x, .y))) %>% 
+  select(player.name, pass.recipient.name, pass_num, 
+         match_id, pass_duo)
+
+```
+
+```{r}
+pass_received_all_box %>% 
+  group_by(match_id) %>% 
+  nest()
+```
+
+```{r}
+all_pass_nested_box <- pass_received_all_box %>% 
+  group_by(match_id) %>% 
+  nest() %>%
+  mutate(plot = map2(
+    .x = data, .y = match_id,
+    ~ ggplot(data = .x, aes(x = pass_duo)) +
+      geom_bar(fill = "#a70042") + 
+      scale_x_upset(n_intersections = 10,
+                    expand = c(0.01, 0.01)) +
+      scale_y_continuous(expand = c(0.04, 0.04)) +
+      labs(title = glue::glue(" Total Completed Passes Into The Box 
+                              Between All Players ({.y})"),
+           subtitle = "'Name: Number' = Passer, \n  'No Number' = Pass Receiver",
+           x = NULL, y = "Number of Passes") +
+      theme_combmatrix(
+        text = element_text(family = font_family, 
+                            color = "#004c99"),
+        plot.title = element_text(family = font_family, size = 20,
+                                  color = "#a70042"),
+        plot.subtitle = element_text(family = font_family, size = 16,
+                                     color = "#004c99"),
+        axis.title = element_text(family = font_family, size = 14,
+                                  color = "#004c99"), 
+        axis.text.x = element_text(family = font_family, size = 12,
+                                   color = "#004c99"),
+        axis.text.y = element_text(family = font_family, size = 12,
+                                   color = "#004c99"),
+        panel.background = element_rect(fill = "white"),
+        combmatrix.panel.point.size = 4,
+        combmatrix.panel.point.color.fill = "#a70042",
+        combmatrix.panel.line.color = "#a70042",
+        panel.grid = element_line(color = "black"),
+        panel.grid.major.x = element_blank(),
+        axis.ticks = element_blank())))
+
+glimpse(all_pass_nested_box)
+```
+
+```{r}
+all_pass_nested <- all_pass_nested_box$plot[[1]] +
+  scale_y_continuous(labels = seq(0, 4, by = 1),
+                     breaks = seq(0, 4, by = 1),
+                     limits = c(0, 4))
+
+all_pass_nested
+
+```
+
+```{r}
+ggsave(filename = "all_passes_plot_RAW_1st_match.png", # Nom du fichier de sortie
+       plot = all_pass_nested,         # Le plot que vous souhaitez enregistrer
+       width = 10,                            # Largeur de l'image en pouces
+       height = 6,                            # Hauteur de l'image en pouces
+       units = "in",                          # Unité de mesure
+       dpi = 300) 
+```
+
+--> Shot Assists
+
+```{r}
+all_shot_assist <- WC2023_dataframe %>% 
+  mutate(pass.outcome.name = fct_na_value_to_level(pass.outcome.name, "Complete")) %>%
+  filter(team.name == "Spain",
+         !is.na(pass.shot_assist),
+         !play_pattern.name %in% c("From Corner", "From Free Kick",
+                                   "From Throw In")) %>% 
+  select(player.name, pass.recipient.name, 
+         season_id, match_id,
+         position.name, position.id,
+         location.x, location.y,
+         pass.end_location.x, pass.end_location.y,
+         contains("pass")) %>% 
+  group_by(match_id) %>% 
+  add_count(player.name, pass.recipient.name, name = "pass_num") %>% 
+  ungroup() %>% 
+  mutate(player.name = glue::glue("{player.name}: {pass_num}")) %>% 
+  mutate(pass_duo = map2(player.name, pass.recipient.name, ~c(.x, .y))) %>% 
+  select(player.name, pass.recipient.name, pass_num, 
+         match_id, pass_duo)
+
+## Nest plots
+nested_all_shot_assist <- all_shot_assist %>% 
+  group_by(match_id) %>% 
+  nest() %>%
+  mutate(plot = map2(
+    data, match_id,
+    ~ ggplot(data = .x, aes(x = pass_duo)) +
+      geom_bar(fill = "#a70042") + 
+      scale_x_upset(n_intersections = 10,
+                    expand = c(0.01, 0.01)) +
+      scale_y_continuous(expand = c(0.04, 0.04)) +
+      labs(title = glue::glue("Shot Assists ({.y})"),
+           subtitle = "'Name: Number' = Passer, \n 'No Number' = Pass Receiver",
+           caption = "Source: StatsBomb",
+           x = NULL, y = "Number of Passes") +
+      theme_combmatrix(
+        text = element_text(family = font_family, 
+                            color = "#004c99"),
+        plot.title = element_text(family = font_family, size = 20,
+                                  color = "#a70042"),
+        plot.subtitle = element_text(family = font_family, size = 16,
+                                     color = "#004c99"),
+        axis.title = element_text(family = font_family, size = 14,
+                                  color = "#004c99"), 
+        axis.text.x = element_text(family = font_family, size = 12,
+                                   color = "#004c99"),
+        axis.text.y = element_text(family = font_family, size = 12,
+                                   color = "#004c99"),
+        panel.background = element_rect(fill = "white"),
+        combmatrix.panel.point.size = 4,
+        combmatrix.panel.point.color.fill = "#a70042",
+        combmatrix.panel.line.color = "#a70042",
+        panel.grid = element_line(color = "black"),
+        panel.grid.major.x = element_blank(),
+        axis.ticks = element_blank())))
+
+```
+
+```{r}
+nested_all_shot_assist <- nested_all_shot_assist$plot[[1]] +
+  scale_y_continuous(labels = seq(0, 6, by = 2),
+                     breaks = seq(0, 6, by = 2),
+                     limits = c(0, 6))
+
+nested_all_shot_assist
+```
+```{r}
+ggsave(filename = "all_shot_assist_1st_match.png", # Nom du fichier de sortie
+       plot = nested_all_shot_assist,         # Le plot que vous souhaitez enregistrer
+       width = 10,                            # Largeur de l'image en pouces
+       height = 6,                            # Hauteur de l'image en pouces
+       units = "in",                          # Unité de mesure
+       dpi = 300) 
+```
+
+**SHOTS / xGA -- FINAL MATCH**
+
+```{r}
+events_final_match_spain <- get.matchFree(Matches[Matches$match_id == '3906390', ])
+```
+
+```{r}
+
+xGA_final = events_final_match_spain %>%
+  filter(type.name=="Shot") %>% #1 
+  select(shot.key_pass_id, xGA_final = shot.statsbomb_xg) #2
+
+shot_assists = left_join(events_match_spain, xGA_final, by = c("id" = "shot.key_pass_id")) %>% #3
+  select(team.name, player.name, player.id, type.name, pass.shot_assist, pass.goal_assist, xGA_final ) %>% #4
+  filter(pass.shot_assist==TRUE | pass.goal_assist==TRUE) #5
+```
+
+```{r}
+clasico_final <- WC2023_dataframe %>% 
+  filter(match_id == 3906390) %>% 
+  mutate(shot.statsbomb_xg = if_else(is.na(shot.statsbomb_xg), 
+                                     0, shot.statsbomb_xg))
+
+clasico_xg_final <- clasico_final %>% 
+  group_by(team.name) %>% 
+  summarize(tot_xg = sum(shot.statsbomb_xg) %>% signif(digits = 2)) %>% 
+  mutate(team_label = glue::glue("{team.name}: {tot_xg} xG"))
+
+clasico_final <- clasico_final %>% 
+  left_join(clasico_xg_final, by = "team.name") %>% 
+  mutate(player_label = case_when(
+    shot.outcome.name == "Goal" ~ glue::glue("{player.name}: {shot.statsbomb_xg %>% signif(digits = 2)} xG"),
+    TRUE ~ ""))
+```
+
+```{r}
+clasico_xg_timelineplot_final <- clasico_final %>% 
+  ggplot() +
+  geom_segment(x = 0, xend = 95,
+               y = 0, yend = 0) +
+  geom_rect(data = clasico_final %>% filter(shot.outcome.name == "Goal"),
+            aes(xmin = minute - 2, xmax = minute + 2,
+                ymin = -0.005, ymax = 0.005), 
+            alpha = 0.3, fill = "green") +
+  geom_label_repel(data = clasico_final %>% filter(shot.outcome.name == "Goal"),
+             aes(x = minute, y = 0,
+                 color = team.name, label = player_label), 
+             nudge_x = 4, nudge_y = 0.003, family = font_family,
+             show.legend = FALSE) +
+  geom_point(data = clasico_final %>% filter(shot.statsbomb_xg != 0),
+             shape = 21, stroke = 1.5,
+             aes(x = minute, y = 0, 
+                 size = shot.statsbomb_xg, fill = team.name)) +
+  scale_color_manual(values = c("Spain" = "#a50044",
+                                "England" = "black")) +
+  scale_fill_manual(values = c("Spain" = "#a50044",
+                                "England" = "black")) +
+  facet_wrap(vars(team_label), ncol = 1) +
+  scale_x_continuous(breaks = seq(0, 95, by = 5),
+                     labels = c(seq(0, 40, by = 5), "HT", 
+                                seq(50, 90, by = 5), "FT"),
+                     limits = c(-3, 95),
+                     expand = c(0.01, 0)) +
+  scale_y_continuous(limits = c(-0.005, 0.005),
+                     expand = c(0, 0)) +
+  scale_size(range = c(2, 6)) +
+  labs(caption = "By @R_by_Ryo") +
+  theme_minimal() +
+  theme(legend.position = "none",
+        strip.text = element_text(size = 16, family = font_family, 
+                                  face = "bold", color = "grey20"),
+        plot.caption = element_text(family = font_family, color = "grey20",
+                                    hjust = 0),
+        axis.title = element_blank(),
+        axis.text = element_blank(),
+        panel.grid.minor = element_blank(),
+        panel.grid.major.y = element_blank())
+  
+clasico_xg_timelineplot_final
+```
+
+```{r}
+clasico_rollsum_final <- clasico_final %>% 
+  group_by(minute, team.name, period) %>% 
+  summarize(sumxg = sum(shot.statsbomb_xg)) %>% 
+  ungroup() %>% 
+  group_by(team.name) %>% 
+  mutate(rollsum = lag(cumsum(sumxg)),
+         rollsum = if_else(is.na(rollsum), 0, rollsum)) %>% 
+  select(team.name, minute, rollsum, sumxg) %>%
+  mutate(rollsum = case_when(
+    row_number() == n() & sumxg != 0 ~ rollsum + sumxg,
+    TRUE ~ rollsum
+  ))
+
+clasico_rollsum_final <- clasico_rollsum_final %>% 
+  left_join(clasico_final %>% filter(shot.outcome.name == "Goal") %>% select(minute, shot.outcome.name, team.name, player.name), 
+            by = c("minute", "team.name")) %>% 
+  mutate(rollsum_goal = rollsum + sumxg,
+         minute_goal = minute + 1,
+         player_label = case_when(
+           shot.outcome.name == "Goal" ~ glue::glue("{player.name}: {sumxg %>% signif(digits = 2)} xG"),
+           TRUE ~ ""))
+
+glimpse(clasico_rollsum_final)
+```
+
+```{r}
+tot_clasico_df_final <- clasico_xg_final %>% 
+  pull(tot_xg)
+
+clasico_rollsumxg_plot_final <- clasico_rollsum_final %>% 
+  ggplot(aes(x = minute, y = rollsum, 
+             group = team.name, color = team.name)) +
+  geom_line(size = 2.5) +
+  geom_label_repel(data = clasico_rollsum_final %>% filter(shot.outcome.name == "Goal"),
+             aes(x = minute_goal, y = rollsum_goal, 
+                 color = team.name, label = player_label), 
+             nudge_x = 6, nudge_y = 0.15, family = font_family,
+             show.legend = FALSE) +
+  geom_point(data = clasico_rollsum_final %>% filter(shot.outcome.name == "Goal"),
+             aes(x = minute_goal, y = rollsum_goal, color = team.name), show.legend = FALSE,
+             size = 5, shape = 21, fill = "white", stroke = 1.25) +
+  scale_color_manual(values = c("Spain" = "#a50044",
+                                 "England" = "#000000"),
+                     labels = c("<b style ='color:#a50044'>Spain</b>", 
+                                "<b style='color: black'>England</b>")) +
+  scale_fill_manual(values = c("Spain" = "#a50044",
+                               "England" = "#000000")) +
+  scale_x_continuous(breaks = c(seq(0, 90, by = 5), 94),
+                     labels = c(seq(0, 40, by = 5), "HT", 
+                                seq(50, 90, by = 5), "FT"),
+                     expand = c(0.01, 0),
+                     limits = c(0, 94)) +
+  scale_y_continuous(sec.axis = sec_axis(~ ., breaks = tot_clasico_df_final)) +
+  labs(title = "<b style='color: black'>England: 0 </b> <br> <b style ='color:#a50044'>Spain: 1 </b>",
+       subtitle = "Final match",
+       x = NULL,
+       y = "Expected Goals") +
+  theme_minimal() +
+  theme(text = element_text(family = font_family),
+        plot.title = element_markdown(size = 40, family = font_family),
+        plot.subtitle = element_text(size = 18, family = font_family,
+                                     color = "grey20"),
+        axis.title = element_text(size = 18, color = "grey20"),
+        axis.text = element_text(size = 16, face = "bold"),
+        panel.grid.minor = element_blank(),
+        legend.text = element_markdown(size = 16),
+        legend.position = c(0.2, 0.95),
+        legend.direction = "horizontal",
+        legend.title = element_blank())
+
+clasico_rollsumxg_plot_final
+```
+
+--> Passes in the last third of the field 
+
+```{r}
+roll_final_pass_final <- clasico_final %>% 
+  group_by(team.name, minute) %>% 
+  mutate(count = case_when(
+    type.name == "Pass" & location.x >= 80 ~ 1L,
+    TRUE ~ 0L
+  )) %>% 
+  select(team.name, minute, count) %>% 
+  ungroup()
+
+```
+
+```{r}
+first_min <- clasico_final$minute %>% unique() %>% first()
+last_min <- clasico_final$minute %>% unique() %>% last()
+minute <- c(first_min:last_min)
+team.name <- c("England", "Spain")
+
+crossing(minute, team.name) %>% slice(26:32)
+```
+
+```{r}
+rolling_sum_final <- tibbletime::rollify(.f = sum, window = 5)
+
+roll_clasico_pass_final <- crossing(minute, team.name) %>%
+  left_join(roll_final_pass_final, by = c("minute", "team.name")) %>% 
+  group_by(team.name, minute) %>% 
+  summarize_all(sum) %>% 
+  ungroup() %>% 
+  mutate(count = ifelse(is.na(count), 0, count)) %>% 
+  group_by(team.name) %>% 
+  mutate(rollsum = rolling_sum(count),
+         rollsum = ifelse(is.na(rollsum), 0, rollsum)) %>% 
+  group_by(team.name) %>% 
+  select(-count) %>% 
+  filter(row_number() %% 5 == 1 | row_number() == n())
+
+roll_clasico_pass_final %>% head(5)
+```
+
+```{r}
+finalthird_rollingplot_final <- roll_clasico_pass_final %>% 
+  ggplot(aes(x = minute, y = rollsum, 
+             group = team.name)) +
+  geom_line(data = roll_clasico_pass_final,
+            size = 1.2) +
+  geom_point(data = roll_clasico_pass_final,
+             aes(fill = team.name),
+             size = 3.5, shape = 21, stroke = 2.5) +
+  scale_x_continuous(breaks = seq(0, 95, by = 5),
+                     labels = c(seq(0, 40, by = 5), "HT", 
+                                seq(50, 90, by = 5), "FT"),
+                     limits = c(-3, 95),
+                     expand = c(0.01, 0)) +
+  scale_y_continuous(breaks = seq(0, 30, by = 5),
+                     labels = seq(0, 30, by = 5)) +
+  scale_fill_manual(values = c("Spain" = "#a50044",
+                               "England" = "white"),
+                    labels = c("<b style ='color:#a50044'>Spain</b>", 
+                               "<b style='color: black'>England</b>")) +
+  labs(title = "<b style='color: black'>England: 1 </b><b style='color: black; font-size: 20pt'>(1st, 40 pts.)</b><br> <b style ='color:#a50044'>Spain: 3 </b><b style ='color:#a50044; font-size: 20pt'>(2nd, 34 pts.)</b>",
+       subtitle = "Spain's final match",
+       x = NULL,
+       y = "Final Third Passes") +
+  theme_minimal() +
+  theme(text = element_text(family = font_family),
+        plot.title = element_markdown(size = 40, family = font_family),
+        plot.subtitle = element_text(size = 18, family = font_family,
+                                     color = "grey20"),
+        axis.title = element_text(size = 18, color = "grey20"),
+        axis.text = element_text(size = 16, face = "bold"),
+        panel.grid.minor = element_blank(),
+        legend.text = element_markdown(size = 14),
+        legend.position = c(0.25, 0.95),
+        legend.direction = "horizontal",
+        legend.title = element_blank())
+
+finalthird_rollingplot_final
+```
+
+```{r}
+ggsave(filename = "finalthird_rollingplot_final.png", # Nom du fichier de sortie
+       plot = finalthird_rollingplot_final,         # Le plot que vous souhaitez enregistrer
+       width = 10,                            # Largeur de l'image en pouces
+       height = 6,                            # Hauteur de l'image en pouces
+       units = "in",                          # Unité de mesure
+       dpi = 300) 
+```
+
+--> Pass Partner Plots
+
+```{r}
+all_pass_nested_final <- all_pass_nested_box$plot[[7]] +
+  scale_y_continuous(labels = seq(0, 4, by = 1),
+                     breaks = seq(0, 4, by = 1),
+                     limits = c(0, 4))
+
+all_pass_nested_final
+```
+```{r}
+ggsave(filename = "all_passes_plot_RAW_final_match.png", # Nom du fichier de sortie
+       plot = all_pass_nested_final,         # Le plot que vous souhaitez enregistrer
+       width = 10,                            # Largeur de l'image en pouces
+       height = 6,                            # Hauteur de l'image en pouces
+       units = "in",                          # Unité de mesure
+       dpi = 300) 
+```
+
+**HEATMAPS**
+
+--> FIRST MATCH 
+
+Nous allons créer une heatmap défensive en examinant à quelle fréquence les équipes effectuent un pourcentage de leurs actions défensives globales dans certaines zones, puis en comparant ce pourcentage à la moyenne de la ligue --> permet de comparer comment chaque équipe se comporte en termes d'actions défensives dans différentes zones par rapport à la moyenne de la ligue.
+
+* la couleur de chaque cellule dépendra de la différence par rapport à la moyenne
+
+```{r}
+heatmap = WC2023_Spain_firstmatch_dataframe %>% mutate(location.x = ifelse(location.x>120, 120, location.x), 
+                                                      location.y = ifelse(location.y>80, 80, location.y),
+                                                      location.x = ifelse(location.x<0, 0, location.x),
+                                                      location.y = ifelse(location.y<0, 0, location.y)) #1
+
+heatmap$xbin <- cut(heatmap$location.x, breaks = seq(from=0, to=120, by = 20),include.lowest=TRUE ) 
+heatmap$ybin <- cut(heatmap$location.y, breaks = seq(from=0, to=80, by = 20),include.lowest=TRUE)
+```
+
+```{r}
+heatmap = heatmap%>%
+  filter(type.name=="Pressure" | duel.type.name=="Tackle" | 
+           type.name=="Foul Committed" | 
+           type.name=="Interception" |
+           type.name=="Block" ) %>%
+  group_by(team.name) %>%
+  mutate(total_DA = n()) %>%
+  group_by(team.name, xbin, ybin) %>%
+  summarise(total_DA = max(total_DA),
+            bin_DA = n(),
+            bin_pct = bin_DA/total_DA,
+            location.x = median(location.x),
+            location.y = median(location.y)) %>%
+  group_by(xbin, ybin) %>%
+  mutate(league_ave = mean(bin_pct)) %>% 
+  group_by(team.name, xbin, ybin) %>%
+  mutate(diff_vs_ave = bin_pct - league_ave)
+```
+
+```{r}
+defensiveactivitycolors <- c("#dc2429", "#dc2329", "#df272d", "#df3238", "#e14348", "#e44d51", "#e35256", "#e76266", "#e9777b", "#ec8589", "#ec898d", "#ef9195",
+"#ef9ea1", "#f0a6a9", "#f2abae", "#f4b9bc", "#f8d1d2", "#f9e0e2",
+"#f7e1e3", "#f5e2e4", "#d4d5d8", "#d1d3d8", "#cdd2d6", "#c8cdd3", "#c0c7cd",
+"#b9c0c8", "#b5bcc3", "#909ba5", "#8f9aa5", "#818c98", "#798590", "#697785", "#526173", "#435367", "#3a4b60", "#2e4257", "#1d3048", "#11263e", "#11273e", "#0d233a", "#020c16")
+```
+
+```{r}
+# Ajout d'une flèche avec geom_segment
+arrow_data <- data.frame(x = 25, xend = 95, y = -83, yend = -83)
+
+ggplot(data= heatmap, aes(x = location.x, y = location.y, fill = diff_vs_ave, group =diff_vs_ave)) + geom_bin2d(binwidth = c(20, 20), position = "identity", alpha = 0.9) + #2
+annotate("rect",xmin = 0, xmax = 120, ymin = 0, ymax = 80, fill = NA, colour = "black", size = 0.6) + annotate("rect",xmin = 0, xmax = 60, ymin = 0, ymax = 80, fill = NA, colour = "black", size = 0.6) + annotate("rect",xmin = 18, xmax = 0, ymin = 18, ymax = 62, fill = NA, colour = "white", size = 0.6) + annotate("rect",xmin = 102, xmax = 120, ymin = 18, ymax = 62, fill = NA, colour = "white", size = 0.6) + annotate("rect",xmin = 0, xmax = 6, ymin = 30, ymax = 50, fill = NA, colour = "white", size = 0.6) + annotate("rect",xmin = 120, xmax = 114, ymin = 30, ymax = 50, fill = NA, colour = "white", size = 0.6) + annotate("rect",xmin = 120, xmax = 120.5, ymin =36, ymax = 44, fill = NA, colour = "black", size = 0.6) + annotate("rect",xmin = 0, xmax = -0.5, ymin =36, ymax = 44, fill = NA, colour = "black", size = 0.6) + annotate("segment", x = 60, xend = 60, y = -0.5, yend = 80.5, colour = "white", size = 0.6)+ annotate("segment", x = 0, xend = 0, y = 0, yend = 80, colour = "black", size = 0.6)+ annotate("segment", x = 120, xend = 120, y = 0, yend = 80, colour = "black", size = 0.6)+
+theme(rect = element_blank(), line = element_blank()) +
+annotate("point", x = 12 , y = 40, colour = "white", size = 1.05) + annotate("point", x = 108 , y = 40, colour = "white", size = 1.05) + annotate("path", colour = "white", size = 0.6,
+x=60+10*cos(seq(0,2*pi,length.out=2000)),
+y=40+10*sin(seq(0,2*pi,length.out=2000)))+
+annotate("point", x = 60 , y = 40, colour = "white", size = 1.05) + annotate("path", x=12+10*cos(seq(-0.3*pi,0.3*pi,length.out=30)), size = 0.6,
+y=40+10*sin(seq(-0.3*pi,0.3*pi,length.out=30)), col="white") +
+  annotate("path", x=108-10*cos(seq(-0.3*pi,0.3*pi,length.out=30)), size = 0.6,
+           y=40-10*sin(seq(-0.3*pi,0.3*pi,length.out=30)), col="white") + #3
+  theme(axis.text.x=element_blank(),
+axis.title.x = element_blank(),
+axis.title.y = element_blank(),
+plot.caption=element_text(size=13,family="Arial", hjust=0.5, vjust=0.5), plot.subtitle = element_text(size = 8, family="Arial", hjust = 0.5), axis.text.y=element_blank(),
+legend.title = element_blank(), legend.text=element_text(size=22,family="Arial"),
+legend.key.size = unit(1.5, "cm"),
+plot.title = element_text(margin = margin(r = 10, b = 10), face="bold",size = 15,
+family="Arial", colour = "black", hjust = 0.5), legend.direction = "vertical",
+axis.ticks=element_blank(),
+plot.background = element_rect(fill = "white"),
+strip.text.x = element_text(size=13,family="Arial")) + #4
+scale_y_reverse() + #5
+scale_fill_gradientn(colours = defensiveactivitycolors, trans = "reverse", labels = scales::percent_format(accuracy = 1), limits = c(0.03, -0.03)) + #6
+labs(title = "Where Do Teams Defend vs League Average?", subtitle = "Women's World Cup 2023 ") + #7
+coord_fixed(ratio = 95/100) +
+  annotation_custom(grob = linesGrob(arrow=arrow(type="open", ends="last", length=unit(2.55,"mm")), gp=gpar(col="black", fill=NA, lwd=2.2)),
+xmin=25, xmax = 95, ymin = -83, ymax = -83) + #9 
+  facet_wrap(~team.name)+ #10
+guides(fill = guide_legend(reverse = TRUE))
+```
+
+La flèche sous le graphique indique la direction de jeu : on voit bien que c'est la même pour les deux équipes ; et donc ce qui est en accord avec les coordonnées des buts à x=120 (à droite du terrain). 
+Cependant cela semble étrange car : 
+ - l'Espagne défend plus au niveau des en-buts de droite 
+ - le Costa Rica davantage au niveau des en-buts de gauche 
+ 
+Donc cela laisse supposer que : 
+ - l'Espagne va marquer à gauche 
+ - le Costa Rica va marquer à droite 
+ 
+--> PAR PERIODE DE JEU POUR VOIR SI IL Y A DES CHANGEMENTS
+ 
+>> PERIODE 1 
+ 
+```{r}
+heatmap_p1 = WC2023_Spain_firstmatch_dataframe %>% 
+  filter(period == 1) %>%  # Filtre les lignes où la colonne "period" est égale à 1
+  mutate(location.x = ifelse(location.x > 120, 120, location.x),
+         location.y = ifelse(location.y > 80, 80, location.y),
+         location.x = ifelse(location.x < 0, 0, location.x),
+         location.y = ifelse(location.y < 0, 0, location.y))
+
+
+heatmap_p1$xbin <- cut(heatmap_p1$location.x, breaks = seq(from=0, to=120, by = 20),include.lowest=TRUE ) 
+heatmap_p1$ybin <- cut(heatmap_p1$location.y, breaks = seq(from=0, to=80, by = 20),include.lowest=TRUE)
+```
+
+```{r}
+heatmap_p1 = heatmap_p1%>%
+  filter(type.name=="Pressure" | duel.type.name=="Tackle" | 
+           type.name=="Foul Committed" | 
+           type.name=="Interception" |
+           type.name=="Block" ) %>%
+  group_by(team.name) %>%
+  mutate(total_DA = n()) %>%
+  group_by(team.name, xbin, ybin) %>%
+  summarise(total_DA = max(total_DA),
+            bin_DA = n(),
+            bin_pct = bin_DA/total_DA,
+            location.x = median(location.x),
+            location.y = median(location.y)) %>%
+  group_by(xbin, ybin) %>%
+  mutate(league_ave = mean(bin_pct)) %>% 
+  group_by(team.name, xbin, ybin) %>%
+  mutate(diff_vs_ave = bin_pct - league_ave)
+```
+
+```{r}
+# Ajout d'une flèche avec geom_segment
+arrow_data <- data.frame(x = 25, xend = 95, y = -83, yend = -83)
+
+ggplot(data= heatmap_p1, aes(x = location.x, y = location.y, fill = diff_vs_ave, group =diff_vs_ave)) + geom_bin2d(binwidth = c(20, 20), position = "identity", alpha = 0.9) + #2
+annotate("rect",xmin = 0, xmax = 120, ymin = 0, ymax = 80, fill = NA, colour = "black", size = 0.6) + annotate("rect",xmin = 0, xmax = 60, ymin = 0, ymax = 80, fill = NA, colour = "black", size = 0.6) + annotate("rect",xmin = 18, xmax = 0, ymin = 18, ymax = 62, fill = NA, colour = "white", size = 0.6) + annotate("rect",xmin = 102, xmax = 120, ymin = 18, ymax = 62, fill = NA, colour = "white", size = 0.6) + annotate("rect",xmin = 0, xmax = 6, ymin = 30, ymax = 50, fill = NA, colour = "white", size = 0.6) + annotate("rect",xmin = 120, xmax = 114, ymin = 30, ymax = 50, fill = NA, colour = "white", size = 0.6) + annotate("rect",xmin = 120, xmax = 120.5, ymin =36, ymax = 44, fill = NA, colour = "black", size = 0.6) + annotate("rect",xmin = 0, xmax = -0.5, ymin =36, ymax = 44, fill = NA, colour = "black", size = 0.6) + annotate("segment", x = 60, xend = 60, y = -0.5, yend = 80.5, colour = "white", size = 0.6)+ annotate("segment", x = 0, xend = 0, y = 0, yend = 80, colour = "black", size = 0.6)+ annotate("segment", x = 120, xend = 120, y = 0, yend = 80, colour = "black", size = 0.6)+
+theme(rect = element_blank(), line = element_blank()) +
+annotate("point", x = 12 , y = 40, colour = "white", size = 1.05) + annotate("point", x = 108 , y = 40, colour = "white", size = 1.05) + annotate("path", colour = "white", size = 0.6,
+x=60+10*cos(seq(0,2*pi,length.out=2000)),
+y=40+10*sin(seq(0,2*pi,length.out=2000)))+
+annotate("point", x = 60 , y = 40, colour = "white", size = 1.05) + annotate("path", x=12+10*cos(seq(-0.3*pi,0.3*pi,length.out=30)), size = 0.6,
+y=40+10*sin(seq(-0.3*pi,0.3*pi,length.out=30)), col="white") +
+  annotate("path", x=108-10*cos(seq(-0.3*pi,0.3*pi,length.out=30)), size = 0.6,
+           y=40-10*sin(seq(-0.3*pi,0.3*pi,length.out=30)), col="white") + #3
+  theme(axis.text.x=element_blank(),
+axis.title.x = element_blank(),
+axis.title.y = element_blank(),
+plot.caption=element_text(size=13,family="Arial", hjust=0.5, vjust=0.5), plot.subtitle = element_text(size = 8, family="Arial", hjust = 0.5), axis.text.y=element_blank(),
+legend.title = element_blank(), legend.text=element_text(size=22,family="Arial"),
+legend.key.size = unit(1.5, "cm"),
+plot.title = element_text(margin = margin(r = 10, b = 10), face="bold",size = 15,
+family="Arial", colour = "black", hjust = 0.5), legend.direction = "vertical",
+axis.ticks=element_blank(),
+plot.background = element_rect(fill = "white"),
+strip.text.x = element_text(size=13,family="Arial")) + #4
+scale_y_reverse() + #5
+scale_fill_gradientn(colours = defensiveactivitycolors, trans = "reverse", labels = scales::percent_format(accuracy = 1), limits = c(0.03, -0.03)) + #6
+labs(title = "Where Do Teams Defend vs League Average? (period 1)", subtitle = "Women's World Cup 2023 ") + #7
+coord_fixed(ratio = 95/100) +
+  annotation_custom(grob = linesGrob(arrow=arrow(type="open", ends="last", length=unit(2.55,"mm")), gp=gpar(col="black", fill=NA, lwd=2.2)),
+xmin=25, xmax = 95, ymin = -83, ymax = -83) + #9 
+  facet_wrap(~team.name)+ #10
+guides(fill = guide_legend(reverse = TRUE))
+```
+
+>> PERIODE 2 
+ 
+```{r}
+heatmap_p2 = WC2023_Spain_firstmatch_dataframe %>% 
+  filter(period == 2) %>%  # Filtre les lignes où la colonne "period" est égale à 2
+  mutate(location.x = ifelse(location.x > 120, 120, location.x),
+         location.y = ifelse(location.y > 80, 80, location.y),
+         location.x = ifelse(location.x < 0, 0, location.x),
+         location.y = ifelse(location.y < 0, 0, location.y))
+
+
+heatmap_p2$xbin <- cut(heatmap_p2$location.x, breaks = seq(from=0, to=120, by = 20),include.lowest=TRUE ) 
+heatmap_p2$ybin <- cut(heatmap_p2$location.y, breaks = seq(from=0, to=80, by = 20),include.lowest=TRUE)
+```
+
+```{r}
+heatmap_p2 = heatmap_p2%>%
+  filter(type.name=="Pressure" | duel.type.name=="Tackle" | 
+           type.name=="Foul Committed" | 
+           type.name=="Interception" |
+           type.name=="Block" ) %>%
+  group_by(team.name) %>%
+  mutate(total_DA = n()) %>%
+  group_by(team.name, xbin, ybin) %>%
+  summarise(total_DA = max(total_DA),
+            bin_DA = n(),
+            bin_pct = bin_DA/total_DA,
+            location.x = median(location.x),
+            location.y = median(location.y)) %>%
+  group_by(xbin, ybin) %>%
+  mutate(league_ave = mean(bin_pct)) %>% 
+  group_by(team.name, xbin, ybin) %>%
+  mutate(diff_vs_ave = bin_pct - league_ave)
+```
+
+```{r}
+# Ajout d'une flèche avec geom_segment
+arrow_data <- data.frame(x = 25, xend = 95, y = -83, yend = -83)
+
+ggplot(data= heatmap_p2, aes(x = location.x, y = location.y, fill = diff_vs_ave, group =diff_vs_ave)) + geom_bin2d(binwidth = c(20, 20), position = "identity", alpha = 0.9) + #2
+annotate("rect",xmin = 0, xmax = 120, ymin = 0, ymax = 80, fill = NA, colour = "black", size = 0.6) + annotate("rect",xmin = 0, xmax = 60, ymin = 0, ymax = 80, fill = NA, colour = "black", size = 0.6) + annotate("rect",xmin = 18, xmax = 0, ymin = 18, ymax = 62, fill = NA, colour = "white", size = 0.6) + annotate("rect",xmin = 102, xmax = 120, ymin = 18, ymax = 62, fill = NA, colour = "white", size = 0.6) + annotate("rect",xmin = 0, xmax = 6, ymin = 30, ymax = 50, fill = NA, colour = "white", size = 0.6) + annotate("rect",xmin = 120, xmax = 114, ymin = 30, ymax = 50, fill = NA, colour = "white", size = 0.6) + annotate("rect",xmin = 120, xmax = 120.5, ymin =36, ymax = 44, fill = NA, colour = "black", size = 0.6) + annotate("rect",xmin = 0, xmax = -0.5, ymin =36, ymax = 44, fill = NA, colour = "black", size = 0.6) + annotate("segment", x = 60, xend = 60, y = -0.5, yend = 80.5, colour = "white", size = 0.6)+ annotate("segment", x = 0, xend = 0, y = 0, yend = 80, colour = "black", size = 0.6)+ annotate("segment", x = 120, xend = 120, y = 0, yend = 80, colour = "black", size = 0.6)+
+theme(rect = element_blank(), line = element_blank()) +
+annotate("point", x = 12 , y = 40, colour = "white", size = 1.05) + annotate("point", x = 108 , y = 40, colour = "white", size = 1.05) + annotate("path", colour = "white", size = 0.6,
+x=60+10*cos(seq(0,2*pi,length.out=2000)),
+y=40+10*sin(seq(0,2*pi,length.out=2000)))+
+annotate("point", x = 60 , y = 40, colour = "white", size = 1.05) + annotate("path", x=12+10*cos(seq(-0.3*pi,0.3*pi,length.out=30)), size = 0.6,
+y=40+10*sin(seq(-0.3*pi,0.3*pi,length.out=30)), col="white") +
+  annotate("path", x=108-10*cos(seq(-0.3*pi,0.3*pi,length.out=30)), size = 0.6,
+           y=40-10*sin(seq(-0.3*pi,0.3*pi,length.out=30)), col="white") + #3
+  theme(axis.text.x=element_blank(),
+axis.title.x = element_blank(),
+axis.title.y = element_blank(),
+plot.caption=element_text(size=13,family="Arial", hjust=0.5, vjust=0.5), plot.subtitle = element_text(size = 8, family="Arial", hjust = 0.5), axis.text.y=element_blank(),
+legend.title = element_blank(), legend.text=element_text(size=22,family="Arial"),
+legend.key.size = unit(1.5, "cm"),
+plot.title = element_text(margin = margin(r = 10, b = 10), face="bold",size = 15,
+family="Arial", colour = "black", hjust = 0.5), legend.direction = "vertical",
+axis.ticks=element_blank(),
+plot.background = element_rect(fill = "white"),
+strip.text.x = element_text(size=13,family="Arial")) + #4
+scale_y_reverse() + #5
+scale_fill_gradientn(colours = defensiveactivitycolors, trans = "reverse", labels = scales::percent_format(accuracy = 1), limits = c(0.03, -0.03)) + #6
+labs(title = "Where Do Teams Defend vs League Average? (period 2)", subtitle = "Women's World Cup 2023 ") + #7
+coord_fixed(ratio = 95/100) +
+  annotation_custom(grob = linesGrob(arrow=arrow(type="open", ends="last", length=unit(2.55,"mm")), gp=gpar(col="black", fill=NA, lwd=2.2)),
+xmin=25, xmax = 95, ymin = -83, ymax = -83) + #9 
+  facet_wrap(~team.name)+ #10
+guides(fill = guide_legend(reverse = TRUE))
+```
+
+--> FINAL MATCH 
+
+```{r}
+heatmap_last = WC2023_Spain_lastmatch_dataframe %>% mutate(location.x = ifelse(location.x>120, 120, location.x), 
+                                                      location.y = ifelse(location.y>80, 80, location.y),
+                                                      location.x = ifelse(location.x<0, 0, location.x),
+                                                      location.y = ifelse(location.y<0, 0, location.y)) #1
+
+heatmap_last$xbin <- cut(heatmap_last$location.x, breaks = seq(from=0, to=120, by = 20),include.lowest=TRUE ) 
+heatmap_last$ybin <- cut(heatmap_last$location.y, breaks = seq(from=0, to=80, by = 20),include.lowest=TRUE)
+```
+
+```{r}
+heatmap_last = heatmap_last%>%
+  filter(type.name=="Pressure" | duel.type.name=="Tackle" | 
+           type.name=="Foul Committed" | 
+           type.name=="Interception" |
+           type.name=="Block" ) %>%
+  group_by(team.name) %>%
+  mutate(total_DA = n()) %>%
+  group_by(team.name, xbin, ybin) %>%
+  summarise(total_DA = max(total_DA),
+            bin_DA = n(),
+            bin_pct = bin_DA/total_DA,
+            location.x = median(location.x),
+            location.y = median(location.y)) %>%
+  group_by(xbin, ybin) %>%
+  mutate(league_ave = mean(bin_pct)) %>% 
+  group_by(team.name, xbin, ybin) %>%
+  mutate(diff_vs_ave = bin_pct - league_ave)
+```
+
+
+```{r}
+# Ajout d'une flèche avec geom_segment
+arrow_data <- data.frame(x = 25, xend = 95, y = -83, yend = -83)
+
+ggplot(data= heatmap_last, aes(x = location.x, y = location.y, fill = diff_vs_ave, group =diff_vs_ave)) + geom_bin2d(binwidth = c(20, 20), position = "identity", alpha = 0.9) + #2
+annotate("rect",xmin = 0, xmax = 120, ymin = 0, ymax = 80, fill = NA, colour = "black", size = 0.6) + annotate("rect",xmin = 0, xmax = 60, ymin = 0, ymax = 80, fill = NA, colour = "black", size = 0.6) + annotate("rect",xmin = 18, xmax = 0, ymin = 18, ymax = 62, fill = NA, colour = "white", size = 0.6) + annotate("rect",xmin = 102, xmax = 120, ymin = 18, ymax = 62, fill = NA, colour = "white", size = 0.6) + annotate("rect",xmin = 0, xmax = 6, ymin = 30, ymax = 50, fill = NA, colour = "white", size = 0.6) + annotate("rect",xmin = 120, xmax = 114, ymin = 30, ymax = 50, fill = NA, colour = "white", size = 0.6) + annotate("rect",xmin = 120, xmax = 120.5, ymin =36, ymax = 44, fill = NA, colour = "black", size = 0.6) + annotate("rect",xmin = 0, xmax = -0.5, ymin =36, ymax = 44, fill = NA, colour = "black", size = 0.6) + annotate("segment", x = 60, xend = 60, y = -0.5, yend = 80.5, colour = "white", size = 0.6)+ annotate("segment", x = 0, xend = 0, y = 0, yend = 80, colour = "black", size = 0.6)+ annotate("segment", x = 120, xend = 120, y = 0, yend = 80, colour = "black", size = 0.6)+
+theme(rect = element_blank(), line = element_blank()) +
+annotate("point", x = 12 , y = 40, colour = "white", size = 1.05) + annotate("point", x = 108 , y = 40, colour = "white", size = 1.05) + annotate("path", colour = "white", size = 0.6,
+x=60+10*cos(seq(0,2*pi,length.out=2000)),
+y=40+10*sin(seq(0,2*pi,length.out=2000)))+
+annotate("point", x = 60 , y = 40, colour = "white", size = 1.05) + annotate("path", x=12+10*cos(seq(-0.3*pi,0.3*pi,length.out=30)), size = 0.6,
+y=40+10*sin(seq(-0.3*pi,0.3*pi,length.out=30)), col="white") +
+  annotate("path", x=108-10*cos(seq(-0.3*pi,0.3*pi,length.out=30)), size = 0.6,
+           y=40-10*sin(seq(-0.3*pi,0.3*pi,length.out=30)), col="white") + #3
+  theme(axis.text.x=element_blank(),
+axis.title.x = element_blank(),
+axis.title.y = element_blank(),
+plot.caption=element_text(size=13,family="Arial", hjust=0.5, vjust=0.5), plot.subtitle = element_text(size = 8, family="Arial", hjust = 0.5), axis.text.y=element_blank(),
+legend.title = element_blank(), legend.text=element_text(size=22,family="Arial"),
+legend.key.size = unit(1.5, "cm"),
+plot.title = element_text(margin = margin(r = 10, b = 10), face="bold",size = 15,
+family="Arial", colour = "black", hjust = 0.5), legend.direction = "vertical",
+axis.ticks=element_blank(),
+plot.background = element_rect(fill = "white"),
+strip.text.x = element_text(size=13,family="Arial")) + #4
+scale_y_reverse() + #5
+scale_fill_gradientn(colours = defensiveactivitycolors, trans = "reverse", labels = scales::percent_format(accuracy = 1), limits = c(0.03, -0.03)) + #6
+labs(title = "Where Do Teams Defend vs League Average? \n  (final match)", subtitle = "Women's World Cup 2023 ") + #7
+coord_fixed(ratio = 95/100) +
+  annotation_custom(grob = linesGrob(arrow=arrow(type="open", ends="last", length=unit(2.55,"mm")), gp=gpar(col="black", fill=NA, lwd=2.2)),
+xmin=25, xmax = 95, ymin = -83, ymax = -83) + #9 
+  facet_wrap(~team.name)+ #10
+guides(fill = guide_legend(reverse = TRUE))
+```
+
+>> PERIODE 1 
+ 
+```{r}
+heatmap_last_p1 = WC2023_Spain_lastmatch_dataframe %>% 
+  filter(period == 1) %>%  # Filtre les lignes où la colonne "period" est égale à 1
+  mutate(location.x = ifelse(location.x > 120, 120, location.x),
+         location.y = ifelse(location.y > 80, 80, location.y),
+         location.x = ifelse(location.x < 0, 0, location.x),
+         location.y = ifelse(location.y < 0, 0, location.y))
+
+
+heatmap_last_p1$xbin <- cut(heatmap_last_p1$location.x, breaks = seq(from=0, to=120, by = 20),include.lowest=TRUE ) 
+heatmap_last_p1$ybin <- cut(heatmap_last_p1$location.y, breaks = seq(from=0, to=80, by = 20),include.lowest=TRUE)
+```
+
+```{r}
+heatmap_last_p1 = heatmap_last_p1%>%
+  filter(type.name=="Pressure" | duel.type.name=="Tackle" | 
+           type.name=="Foul Committed" | 
+           type.name=="Interception" |
+           type.name=="Block" ) %>%
+  group_by(team.name) %>%
+  mutate(total_DA = n()) %>%
+  group_by(team.name, xbin, ybin) %>%
+  summarise(total_DA = max(total_DA),
+            bin_DA = n(),
+            bin_pct = bin_DA/total_DA,
+            location.x = median(location.x),
+            location.y = median(location.y)) %>%
+  group_by(xbin, ybin) %>%
+  mutate(league_ave = mean(bin_pct)) %>% 
+  group_by(team.name, xbin, ybin) %>%
+  mutate(diff_vs_ave = bin_pct - league_ave)
+```
+
+```{r}
+# Ajout d'une flèche avec geom_segment
+arrow_data <- data.frame(x = 25, xend = 95, y = -83, yend = -83)
+
+ggplot(data= heatmap_last_p1, aes(x = location.x, y = location.y, fill = diff_vs_ave, group =diff_vs_ave)) + geom_bin2d(binwidth = c(20, 20), position = "identity", alpha = 0.9) + #2
+annotate("rect",xmin = 0, xmax = 120, ymin = 0, ymax = 80, fill = NA, colour = "black", size = 0.6) + annotate("rect",xmin = 0, xmax = 60, ymin = 0, ymax = 80, fill = NA, colour = "black", size = 0.6) + annotate("rect",xmin = 18, xmax = 0, ymin = 18, ymax = 62, fill = NA, colour = "white", size = 0.6) + annotate("rect",xmin = 102, xmax = 120, ymin = 18, ymax = 62, fill = NA, colour = "white", size = 0.6) + annotate("rect",xmin = 0, xmax = 6, ymin = 30, ymax = 50, fill = NA, colour = "white", size = 0.6) + annotate("rect",xmin = 120, xmax = 114, ymin = 30, ymax = 50, fill = NA, colour = "white", size = 0.6) + annotate("rect",xmin = 120, xmax = 120.5, ymin =36, ymax = 44, fill = NA, colour = "black", size = 0.6) + annotate("rect",xmin = 0, xmax = -0.5, ymin =36, ymax = 44, fill = NA, colour = "black", size = 0.6) + annotate("segment", x = 60, xend = 60, y = -0.5, yend = 80.5, colour = "white", size = 0.6)+ annotate("segment", x = 0, xend = 0, y = 0, yend = 80, colour = "black", size = 0.6)+ annotate("segment", x = 120, xend = 120, y = 0, yend = 80, colour = "black", size = 0.6)+
+theme(rect = element_blank(), line = element_blank()) +
+annotate("point", x = 12 , y = 40, colour = "white", size = 1.05) + annotate("point", x = 108 , y = 40, colour = "white", size = 1.05) + annotate("path", colour = "white", size = 0.6,
+x=60+10*cos(seq(0,2*pi,length.out=2000)),
+y=40+10*sin(seq(0,2*pi,length.out=2000)))+
+annotate("point", x = 60 , y = 40, colour = "white", size = 1.05) + annotate("path", x=12+10*cos(seq(-0.3*pi,0.3*pi,length.out=30)), size = 0.6,
+y=40+10*sin(seq(-0.3*pi,0.3*pi,length.out=30)), col="white") +
+  annotate("path", x=108-10*cos(seq(-0.3*pi,0.3*pi,length.out=30)), size = 0.6,
+           y=40-10*sin(seq(-0.3*pi,0.3*pi,length.out=30)), col="white") + #3
+  theme(axis.text.x=element_blank(),
+axis.title.x = element_blank(),
+axis.title.y = element_blank(),
+plot.caption=element_text(size=13,family="Arial", hjust=0.5, vjust=0.5), plot.subtitle = element_text(size = 8, family="Arial", hjust = 0.5), axis.text.y=element_blank(),
+legend.title = element_blank(), legend.text=element_text(size=22,family="Arial"),
+legend.key.size = unit(1.5, "cm"),
+plot.title = element_text(margin = margin(r = 10, b = 10), face="bold",size = 15,
+family="Arial", colour = "black", hjust = 0.5), legend.direction = "vertical",
+axis.ticks=element_blank(),
+plot.background = element_rect(fill = "white"),
+strip.text.x = element_text(size=13,family="Arial")) + #4
+scale_y_reverse() + #5
+scale_fill_gradientn(colours = defensiveactivitycolors, trans = "reverse", labels = scales::percent_format(accuracy = 1), limits = c(0.03, -0.03)) + #6
+labs(title = "Where Do Teams Defend vs League Average? \n (final match - period 1)", subtitle = "Women's World Cup 2023 ") + #7
+coord_fixed(ratio = 95/100) +
+  annotation_custom(grob = linesGrob(arrow=arrow(type="open", ends="last", length=unit(2.55,"mm")), gp=gpar(col="black", fill=NA, lwd=2.2)),
+xmin=25, xmax = 95, ymin = -83, ymax = -83) + #9 
+  facet_wrap(~team.name)+ #10
+guides(fill = guide_legend(reverse = TRUE))
+```
+Durant la première période de jeu de la finale : 
+
+- l'espage défend à droite ; marque à gauche 
+- l'angleterre défend à gauche ; marque à droite
+
+--> PERIODE 2 
+ 
+```{r}
+heatmap_last_p2 = WC2023_Spain_lastmatch_dataframe %>% 
+  filter(period == 2) %>%  # Filtre les lignes où la colonne "period" est égale à 2
+  mutate(location.x = ifelse(location.x > 120, 120, location.x),
+         location.y = ifelse(location.y > 80, 80, location.y),
+         location.x = ifelse(location.x < 0, 0, location.x),
+         location.y = ifelse(location.y < 0, 0, location.y))
+
+
+heatmap_last_p2$xbin <- cut(heatmap_last_p2$location.x, breaks = seq(from=0, to=120, by = 20),include.lowest=TRUE ) 
+heatmap_last_p2$ybin <- cut(heatmap_last_p2$location.y, breaks = seq(from=0, to=80, by = 20),include.lowest=TRUE)
+```
+
+```{r}
+heatmap_last_p2 = heatmap_last_p2%>%
+  filter(type.name=="Pressure" | duel.type.name=="Tackle" | 
+           type.name=="Foul Committed" | 
+           type.name=="Interception" |
+           type.name=="Block" ) %>%
+  group_by(team.name) %>%
+  mutate(total_DA = n()) %>%
+  group_by(team.name, xbin, ybin) %>%
+  summarise(total_DA = max(total_DA),
+            bin_DA = n(),
+            bin_pct = bin_DA/total_DA,
+            location.x = median(location.x),
+            location.y = median(location.y)) %>%
+  group_by(xbin, ybin) %>%
+  mutate(league_ave = mean(bin_pct)) %>% 
+  group_by(team.name, xbin, ybin) %>%
+  mutate(diff_vs_ave = bin_pct - league_ave)
+```
+
+```{r}
+# Ajout d'une flèche avec geom_segment
+arrow_data <- data.frame(x = 25, xend = 95, y = -83, yend = -83)
+
+ggplot(data= heatmap_last_p2, aes(x = location.x, y = location.y, fill = diff_vs_ave, group =diff_vs_ave)) + geom_bin2d(binwidth = c(20, 20), position = "identity", alpha = 0.9) + #2
+annotate("rect",xmin = 0, xmax = 120, ymin = 0, ymax = 80, fill = NA, colour = "black", size = 0.6) + annotate("rect",xmin = 0, xmax = 60, ymin = 0, ymax = 80, fill = NA, colour = "black", size = 0.6) + annotate("rect",xmin = 18, xmax = 0, ymin = 18, ymax = 62, fill = NA, colour = "white", size = 0.6) + annotate("rect",xmin = 102, xmax = 120, ymin = 18, ymax = 62, fill = NA, colour = "white", size = 0.6) + annotate("rect",xmin = 0, xmax = 6, ymin = 30, ymax = 50, fill = NA, colour = "white", size = 0.6) + annotate("rect",xmin = 120, xmax = 114, ymin = 30, ymax = 50, fill = NA, colour = "white", size = 0.6) + annotate("rect",xmin = 120, xmax = 120.5, ymin =36, ymax = 44, fill = NA, colour = "black", size = 0.6) + annotate("rect",xmin = 0, xmax = -0.5, ymin =36, ymax = 44, fill = NA, colour = "black", size = 0.6) + annotate("segment", x = 60, xend = 60, y = -0.5, yend = 80.5, colour = "white", size = 0.6)+ annotate("segment", x = 0, xend = 0, y = 0, yend = 80, colour = "black", size = 0.6)+ annotate("segment", x = 120, xend = 120, y = 0, yend = 80, colour = "black", size = 0.6)+
+theme(rect = element_blank(), line = element_blank()) +
+annotate("point", x = 12 , y = 40, colour = "white", size = 1.05) + annotate("point", x = 108 , y = 40, colour = "white", size = 1.05) + annotate("path", colour = "white", size = 0.6,
+x=60+10*cos(seq(0,2*pi,length.out=2000)),
+y=40+10*sin(seq(0,2*pi,length.out=2000)))+
+annotate("point", x = 60 , y = 40, colour = "white", size = 1.05) + annotate("path", x=12+10*cos(seq(-0.3*pi,0.3*pi,length.out=30)), size = 0.6,
+y=40+10*sin(seq(-0.3*pi,0.3*pi,length.out=30)), col="white") +
+  annotate("path", x=108-10*cos(seq(-0.3*pi,0.3*pi,length.out=30)), size = 0.6,
+           y=40-10*sin(seq(-0.3*pi,0.3*pi,length.out=30)), col="white") + #3
+  theme(axis.text.x=element_blank(),
+axis.title.x = element_blank(),
+axis.title.y = element_blank(),
+plot.caption=element_text(size=13,family="Arial", hjust=0.5, vjust=0.5), plot.subtitle = element_text(size = 8, family="Arial", hjust = 0.5), axis.text.y=element_blank(),
+legend.title = element_blank(), legend.text=element_text(size=22,family="Arial"),
+legend.key.size = unit(1.5, "cm"),
+plot.title = element_text(margin = margin(r = 10, b = 10), face="bold",size = 15,
+family="Arial", colour = "black", hjust = 0.5), legend.direction = "vertical",
+axis.ticks=element_blank(),
+plot.background = element_rect(fill = "white"),
+strip.text.x = element_text(size=13,family="Arial")) + #4
+scale_y_reverse() + #5
+scale_fill_gradientn(colours = defensiveactivitycolors, trans = "reverse", labels = scales::percent_format(accuracy = 1), limits = c(0.03, -0.03)) + #6
+labs(title = "Where Do Teams Defend vs League Average? \n (final match - period 2)", subtitle = "Women's World Cup 2023 ") + #7
+coord_fixed(ratio = 95/100) +
+  annotation_custom(grob = linesGrob(arrow=arrow(type="open", ends="last", length=unit(2.55,"mm")), gp=gpar(col="black", fill=NA, lwd=2.2)),
+xmin=25, xmax = 95, ymin = -83, ymax = -83) + #9 
+  facet_wrap(~team.name)+ #10
+guides(fill = guide_legend(reverse = TRUE))
+```
+
+** CONCLUSION : il n'y a pas de changement de côté à la mi-temps !!!! 
+
+**SHOTS MAPS**
+
+Les cartes de tirs ("shot maps") permettent d'afficher l'emplacement et le résultat des tirs effectués lors d'un match de football. Elles offrent des informations sur l'efficacité des attaques d'une équipe, la précision des tirs d'un joueur et la répartition des tirs dans différentes zones du terrain.
+
+Les cartes de tirs sont des outils précieux pour évaluer la performance d'une équipe, évaluer les joueurs et approfondir la compréhension du jeu de football grâce à la visualisation des données.
+
+Remarque : les données relatives aux tirs de pénalité ont été exclues de la visualisation. Cette exclusion permet de se concentrer sur les tirs en jeu régulier, sans l'influence des tirs de pénalité. 
+
+```{r}
+shots_teresa = WC2023_Spain_firstmatch_dataframe %>%
+filter(type.name=="Shot" & (shot.type.name!="Penalty" | is.na(shot.type.name)) & player.name=="Teresa Abelleira Dueñas") #1
+shotmapxgcolors <- c("#192780", "#2a5d9f", "#40a7d0", "#87cdcf", "#e7f8e6", "#f4ef95", "#FDE960", "#FCDC5F", "#F5B94D", "#F0983E", "#ED8A37", "#E66424", "#D54F1B", "#DC2608", "#BF0000", "#7F0000", "#5F0000") #2
+```
+
+Les valeurs d'Expected Goals (xG) sont utilisées pour la couleur de remplissage des points. Cela signifie que la couleur des points est basée sur les estimations de la probabilité de réussite du tir (xG). Les tirs avec un xG plus élevé peuvent être représentés en utilisant des couleurs différentes, ce qui permet de distinguer les tirs de qualité supérieure des tirs de qualité inférieure.
+
+Cela montre comment les tirs au but peuvent être tracés sur un graphique en utilisant ggplot, en prenant en compte des aspects tels que l'importance des tirs (selon les valeurs d'xG) et les parties du corps utilisées pour les tirs. Ces détails peuvent fournir des informations précieuses sur la qualité des opportunités de tir d'une équipe ou d'un joueur.
+
+```{r}
+ggplot() +
+annotate("rect",xmin = 0, xmax = 120, ymin = 0, ymax = 80, fill = NA, colour = "black", size = 0.6) + annotate("rect",xmin = 0, xmax = 60, ymin = 0, ymax = 80, fill = NA, colour = "black", size = 0.6) + annotate("rect",xmin = 18, xmax = 0, ymin = 18, ymax = 62, fill = NA, colour = "black", size = 0.6) + annotate("rect",xmin = 102, xmax = 120, ymin = 18, ymax = 62, fill = NA, colour = "black", size = 0.6) + annotate("rect",xmin = 0, xmax = 6, ymin = 30, ymax = 50, fill = NA, colour = "black", size = 0.6) + annotate("rect",xmin = 120, xmax = 114, ymin = 30, ymax = 50, fill = NA, colour = "black", size = 0.6) + annotate("rect",xmin = 120, xmax = 120.5, ymin =36, ymax = 44, fill = NA, colour = "black", size = 0.6) + annotate("rect",xmin = 0, xmax = -0.5, ymin =36, ymax = 44, fill = NA, colour = "black", size = 0.6) + annotate("segment", x = 60, xend = 60, y = -0.5, yend = 80.5, colour = "black", size = 0.6)+ annotate("segment", x = 0, xend = 0, y = 0, yend = 80, colour = "black", size = 0.6)+ annotate("segment", x = 120, xend = 120, y = 0, yend = 80, colour = "black", size = 0.6)+
+theme(rect = element_blank(),
+line = element_blank()) +
+# add penalty spot right
+  annotate("point", x = 108 , y = 40, colour = "black", size = 1.05) + annotate("path", colour = "black", size = 0.6,
+x=60+10*cos(seq(0,2*pi,length.out=2000)),
+y=40+10*sin(seq(0,2*pi,length.out=2000)))+ # add centre spot
+annotate("point", x = 60 , y = 40, colour = "black", size = 1.05) + annotate("path", x=12+10*cos(seq(-0.3*pi,0.3*pi,length.out=30)), size = 0.6,
+y=40+10*sin(seq(-0.3*pi,0.3*pi,length.out=30)), col="black") + annotate("path", x=107.84-10*cos(seq(-0.3*pi,0.3*pi,length.out=30)), size = 0.6,
+y=40-10*sin(seq(-0.3*pi,0.3*pi,length.out=30)), col="black") +
+  geom_point(data = shots_teresa, aes(x = location.x, y = location.y, fill = shot.statsbomb_xg, shape = shot.body_part.name), size = 6, alpha = 0.8) + 
+  theme(axis.text.x=element_blank(),
+axis.title.x = element_blank(),
+axis.title.y = element_blank(),
+plot.caption=element_text(size=10,family="Arial", hjust=0.5, vjust=0.5), plot.subtitle = element_text(size = 18, family="Arial", hjust = 0.5), axis.text.y=element_blank(),
+legend.position = "top",
+legend.title=element_text(size=10,family="Arial"), legend.text=element_text(size=20,family="Arial"),
+legend.margin = margin(c(20, 10, -85, 50)),
+legend.key.size = unit(1.5, "cm"),
+plot.title = element_text(margin = margin(r = 10, b = 10), face="bold",size = 20, family="Arial", colour = "black", hjust = 0.5),
+legend.direction = "horizontal",
+axis.ticks=element_blank(),
+aspect.ratio = c(65/100),
+plot.background = element_rect(fill = "white"),
+strip.text.x = element_text(size=10,family="Arial")) +
+labs(title = "Teresa Abelleira Dueñas, Shot Map", subtitle = "Women's World Cup 2023") + #4
+scale_fill_gradientn(colours = shotmapxgcolors, limit = c(0,0.8), oob=scales::squish, name = "Expected Goals Value") +
+  scale_shape_manual(values = c("Head" = 21, "Right Foot" = 23, "Left Foot" = 24), name ="") + #6 
+  guides(fill = guide_colourbar(title.position = "top"),
+shape = guide_legend(override.aes = list(size = 7, fill = "black"))) + #7 
+  coord_flip(xlim = c(85, 125)) + 
+  theme(text = element_text(family = "Arial")) +
+  theme( text = element_text(size = 10))
+             
+```
+
+```{r}
+shots_olga = WC2023_Spain_firstmatch_dataframe %>%
+filter(type.name=="Shot" & (shot.type.name!="Penalty" | is.na(shot.type.name)) & player.name=="Olga  Carmona García") #1
+shotmapxgcolors <- c("#192780", "#2a5d9f", "#40a7d0", "#87cdcf", "#e7f8e6", "#f4ef95", "#FDE960", "#FCDC5F", "#F5B94D", "#F0983E", "#ED8A37", "#E66424", "#D54F1B", "#DC2608", "#BF0000", "#7F0000", "#5F0000") #2
+```
+
+```{r}
+ggplot() +
+annotate("rect",xmin = 0, xmax = 120, ymin = 0, ymax = 80, fill = NA, colour = "black", size = 0.6) + annotate("rect",xmin = 0, xmax = 60, ymin = 0, ymax = 80, fill = NA, colour = "black", size = 0.6) + annotate("rect",xmin = 18, xmax = 0, ymin = 18, ymax = 62, fill = NA, colour = "black", size = 0.6) + annotate("rect",xmin = 102, xmax = 120, ymin = 18, ymax = 62, fill = NA, colour = "black", size = 0.6) + annotate("rect",xmin = 0, xmax = 6, ymin = 30, ymax = 50, fill = NA, colour = "black", size = 0.6) + annotate("rect",xmin = 120, xmax = 114, ymin = 30, ymax = 50, fill = NA, colour = "black", size = 0.6) + annotate("rect",xmin = 120, xmax = 120.5, ymin =36, ymax = 44, fill = NA, colour = "black", size = 0.6) + annotate("rect",xmin = 0, xmax = -0.5, ymin =36, ymax = 44, fill = NA, colour = "black", size = 0.6) + annotate("segment", x = 60, xend = 60, y = -0.5, yend = 80.5, colour = "black", size = 0.6)+ annotate("segment", x = 0, xend = 0, y = 0, yend = 80, colour = "black", size = 0.6)+ annotate("segment", x = 120, xend = 120, y = 0, yend = 80, colour = "black", size = 0.6)+
+theme(rect = element_blank(),
+line = element_blank()) +
+# add penalty spot right
+  annotate("point", x = 108 , y = 40, colour = "black", size = 1.05) + annotate("path", colour = "black", size = 0.6,
+x=60+10*cos(seq(0,2*pi,length.out=2000)),
+y=40+10*sin(seq(0,2*pi,length.out=2000)))+ # add centre spot
+annotate("point", x = 60 , y = 40, colour = "black", size = 1.05) + annotate("path", x=12+10*cos(seq(-0.3*pi,0.3*pi,length.out=30)), size = 0.6,
+y=40+10*sin(seq(-0.3*pi,0.3*pi,length.out=30)), col="black") + annotate("path", x=107.84-10*cos(seq(-0.3*pi,0.3*pi,length.out=30)), size = 0.6,
+y=40-10*sin(seq(-0.3*pi,0.3*pi,length.out=30)), col="black") +
+  geom_point(data = shots_olga, aes(x = location.x, y = location.y, fill = shot.statsbomb_xg, shape = shot.body_part.name), size = 6, alpha = 0.8) + 
+  theme(axis.text.x=element_blank(),
+axis.title.x = element_blank(),
+axis.title.y = element_blank(),
+plot.caption=element_text(size=10,family="Arial", hjust=0.5, vjust=0.5), plot.subtitle = element_text(size = 18, family="Arial", hjust = 0.5), axis.text.y=element_blank(),
+legend.position = "top",
+legend.title=element_text(size=10,family="Arial"), legend.text=element_text(size=20,family="Arial"),
+legend.margin = margin(c(20, 10, -85, 50)),
+legend.key.size = unit(1.5, "cm"),
+plot.title = element_text(margin = margin(r = 10, b = 10), face="bold",size = 20, family="Arial", colour = "black", hjust = 0.5),
+legend.direction = "horizontal",
+axis.ticks=element_blank(),
+aspect.ratio = c(65/100),
+plot.background = element_rect(fill = "white"),
+strip.text.x = element_text(size=10,family="Arial")) +
+labs(title = "Olga  Carmona García, Shot Map", subtitle = "Women's World Cup 2023") + #4
+scale_fill_gradientn(colours = shotmapxgcolors, limit = c(0,0.8), oob=scales::squish, name = "Expected Goals Value") +
+  scale_shape_manual(values = c("Head" = 21, "Right Foot" = 23, "Left Foot" = 24), name ="") + #6 
+  guides(fill = guide_colourbar(title.position = "top"),
+shape = guide_legend(override.aes = list(size = 7, fill = "black"))) + #7 
+  coord_flip(xlim = c(85, 125)) + 
+  theme(text = element_text(family = "Arial")) +
+  theme( text = element_text(size = 10))
+             
+```
+
+```{r}
+shots_maria = WC2023_Spain_firstmatch_dataframe %>%
+filter(type.name=="Shot" & (shot.type.name!="Penalty" | is.na(shot.type.name)) & player.name=="María Francesca Caldentey Oliver") #1
+shotmapxgcolors <- c("#192780", "#2a5d9f", "#40a7d0", "#87cdcf", "#e7f8e6", "#f4ef95", "#FDE960", "#FCDC5F", "#F5B94D", "#F0983E", "#ED8A37", "#E66424", "#D54F1B", "#DC2608", "#BF0000", "#7F0000", "#5F0000") #2
+```
+
+```{r}
+ggplot() +
+annotate("rect",xmin = 0, xmax = 120, ymin = 0, ymax = 80, fill = NA, colour = "black", size = 0.6) + annotate("rect",xmin = 0, xmax = 60, ymin = 0, ymax = 80, fill = NA, colour = "black", size = 0.6) + annotate("rect",xmin = 18, xmax = 0, ymin = 18, ymax = 62, fill = NA, colour = "black", size = 0.6) + annotate("rect",xmin = 102, xmax = 120, ymin = 18, ymax = 62, fill = NA, colour = "black", size = 0.6) + annotate("rect",xmin = 0, xmax = 6, ymin = 30, ymax = 50, fill = NA, colour = "black", size = 0.6) + annotate("rect",xmin = 120, xmax = 114, ymin = 30, ymax = 50, fill = NA, colour = "black", size = 0.6) + annotate("rect",xmin = 120, xmax = 120.5, ymin =36, ymax = 44, fill = NA, colour = "black", size = 0.6) + annotate("rect",xmin = 0, xmax = -0.5, ymin =36, ymax = 44, fill = NA, colour = "black", size = 0.6) + annotate("segment", x = 60, xend = 60, y = -0.5, yend = 80.5, colour = "black", size = 0.6)+ annotate("segment", x = 0, xend = 0, y = 0, yend = 80, colour = "black", size = 0.6)+ annotate("segment", x = 120, xend = 120, y = 0, yend = 80, colour = "black", size = 0.6)+
+theme(rect = element_blank(),
+line = element_blank()) +
+# add penalty spot right
+  annotate("point", x = 108 , y = 40, colour = "black", size = 1.05) + annotate("path", colour = "black", size = 0.6,
+x=60+10*cos(seq(0,2*pi,length.out=2000)),
+y=40+10*sin(seq(0,2*pi,length.out=2000)))+ # add centre spot
+annotate("point", x = 60 , y = 40, colour = "black", size = 1.05) + annotate("path", x=12+10*cos(seq(-0.3*pi,0.3*pi,length.out=30)), size = 0.6,
+y=40+10*sin(seq(-0.3*pi,0.3*pi,length.out=30)), col="black") + annotate("path", x=107.84-10*cos(seq(-0.3*pi,0.3*pi,length.out=30)), size = 0.6,
+y=40-10*sin(seq(-0.3*pi,0.3*pi,length.out=30)), col="black") +
+  geom_point(data = shots_maria, aes(x = location.x, y = location.y, fill = shot.statsbomb_xg, shape = shot.body_part.name), size = 6, alpha = 0.8) + 
+  theme(axis.text.x=element_blank(),
+axis.title.x = element_blank(),
+axis.title.y = element_blank(),
+plot.caption=element_text(size=10,family="Arial", hjust=0.5, vjust=0.5), plot.subtitle = element_text(size = 18, family="Arial", hjust = 0.5), axis.text.y=element_blank(),
+legend.position = "top",
+legend.title=element_text(size=10,family="Arial"), legend.text=element_text(size=20,family="Arial"),
+legend.margin = margin(c(20, 10, -85, 50)),
+legend.key.size = unit(1.5, "cm"),
+plot.title = element_text(margin = margin(r = 10, b = 10), face="bold",size = 20, family="Arial", colour = "black", hjust = 0.5),
+legend.direction = "horizontal",
+axis.ticks=element_blank(),
+aspect.ratio = c(65/100),
+plot.background = element_rect(fill = "white"),
+strip.text.x = element_text(size=10,family="Arial")) +
+labs(title = "María Francesca Caldentey Oliver, Shot Map", subtitle = "Women's World Cup 2023") + #4
+scale_fill_gradientn(colours = shotmapxgcolors, limit = c(0,0.8), oob=scales::squish, name = "Expected Goals Value") +
+  scale_shape_manual(values = c("Head" = 21, "Right Foot" = 23, "Left Foot" = 24), name ="") + #6 
+  guides(fill = guide_colourbar(title.position = "top"),
+shape = guide_legend(override.aes = list(size = 7, fill = "black"))) + #7 
+  coord_flip(xlim = c(85, 125)) + 
+  theme(text = element_text(family = "Arial")) +
+  theme( text = element_text(size = 10))
+
+             
+```
+
+

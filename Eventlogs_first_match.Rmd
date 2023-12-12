@@ -1,0 +1,1263 @@
+---
+title: "Eventlog - focus on specific actions - Spain's First Match"
+output: html_notebook
+---
+
+Authors : Julie TREILHOU and Laly LACROIX 
+
+**CHARGEMENT DES DATAFRAME**
+
+```{r}
+#WC2023_Spain_firstmatch_dataframe <- readRDS("~/5A/Research_project/Eventlog/Dataframes/WC2023_Spain_firstmatch_dataframe.RData")
+
+```
+
+```{r}
+# WC2023_Spain_firstmatch_dataframe <- readRDS("/Users/lalylacroix/Desktop/INSA/5A/Projet/WC2023/Eventlog + Dataframes/WC2023_Spain_firstmatch_dataframe.RData")
+```
+
+**CREATION EVENTLOGS**
+
+--> Définir un problème plus ciblé !! On va maintenant se concentrer sur les séquences d'actions menant à un objectif, un résultat bien précis et défini. Pour cela, nous retenons les 10 actions précédant le résultat souhaité, car ce sont le plus souvent les dernières actions qui sont le plus déterminantes et donc le plus intéressantes à étudier. 
+
+Séquences des types d'actions les plus intéressantes (environ les 10 qui précèdent) : (EVENTLOG 3 notamment)
+> avant un tir sauvé par le gardien
+> avant un penalty
+> avant un goal
+> avant une sortie de ballon "out"
+> avant que l'on dépasse la moitié du terrain en partant du gardien
+
+```{r}
+library(bupaR)
+library(bupaverse)
+library(eventdataR)
+library(lubridate)
+library(tidyverse)
+library(processanimateR)
+library(processmonitR)
+```
+
+```{r}
+# Voir l'aboutissement des penalty
+
+ex <- WC2023_Spain_firstmatch_dataframe[, c("timestamp","type.name", "player.name","player.id","period","team.name","shot.type.name","shot.type.id","shot.technique.name","shot.outcome.name","goalkeeper.type.name","goalkeeper.outcome.name")]
+
+ex2 <- WC2023_Spain_firstmatch_dataframe[, c("goalkeeper.type.name","goalkeeper.outcome.name")]
+```
+
+  -- EXEMPLE 2 -- SHOTS --
+
+```{r}
+ev_log2 <- WC2023_Spain_firstmatch_dataframe[, c("timestamp","type.name", "player.name","player.id","period","team.name","shot.type.name","shot.type.id","shot.technique.name","shot.outcome.name")]
+
+ev_log2 <- ev_log2 %>%
+  filter(type.name == "Shot",team.name == "Spain")
+
+ev_log2 <- ev_log2[,c("timestamp","player.name","shot.type.name","shot.technique.name","shot.outcome.name")]
+
+```
+
+```{r}
+ev_log2$timestamp <- as.POSIXct(ev_log2$timestamp, format = "%H:%M:%OS")
+#ev_log2$timestamp <- as.POSIXct(ev_log2$timestamp)
+```
+
+```{r}
+ev_log2 <- ev_log2 %>% mutate(activity_instance_id = row_number())
+ev_log2 <- ev_log2 %>% mutate(status = "Complete")
+```
+
+**Création du case_id_time en fonction du temps**
+
+```{r}
+# Créez la colonne "case_id_time" en utilisant les changements de temps toutes les 10 minutes ici car c'est plus interessant de le faire en minutes au regard du timestamp pour ces données là.
+
+#Pour chaque cas, changer les valeurs dans l'affectation de case_id_time
+ev_log2 <- ev_log2 %>%
+  mutate(
+    timestamp_minutes =as.numeric(format(ev_log2$timestamp, "%H")) * 60 +
+  as.numeric(format(ev_log2$timestamp, "%M")),
+    timestamp_secondes = as.numeric(format(ev_log2$timestamp, "%H")) * 3600 + 
+  as.numeric(format(ev_log2$timestamp, "%M"))*60 + as.numeric(format(ev_log2$timestamp, "%OS"))
+  )
+
+```
+
+```{r}
+ev_log2 <- ev_log2 %>%
+  mutate(
+    case_id_time = 1 + cumsum(timestamp_minutes %% 10 == 1))
+```
+
+**Création du case_id_ relevant en fonction d'indicateurs**
+Ici on choisit comme changement de cas lorsque le shot a abouti à un but, car c'est l'objectif principal recherché lors d'un match.
+
+```{r}
+ev_log2 <- ev_log2 %>%
+  mutate(case_id_relevant = 1+cumsum(shot.outcome.name == "Goal" )) 
+```
+
+```{r}
+ev_log2 <- ev_log2 %>%
+  select(-timestamp_minutes,-timestamp_secondes)
+```
+
+```{r}
+date_first_match <- "2023-07-21"
+ev_log2$timestamp <- sub("^\\d{4}-\\d{2}-\\d{2}", date_first_match, ev_log2$timestamp)
+ev_log2$timestamp <- as.POSIXct(ev_log2$timestamp, format = "%Y-%m-%d %H:%M:%OS")
+```
+
+```{r}
+ev_log2_time <- ev_log2 %>%
+  eventlog(
+    case_id = "case_id_time",
+    activity_id = "shot.type.name",
+    activity_instance_id = "activity_instance_id",
+    lifecycle_id = "status",
+    timestamp = "timestamp",
+    resource_id = "shot.technique.name"
+  )
+```
+
+```{r}
+ev_log2_relevant <- ev_log2 %>%
+  eventlog(
+    case_id = "case_id_relevant",
+    activity_id = "shot.type.name",
+    activity_instance_id = "activity_instance_id",
+    lifecycle_id = "status",
+    timestamp = "timestamp",
+    resource_id = "player.name" #ou shot.technique.name ou shot.outcome.name
+  )
+```
+
+```{r}
+ev_log2_relevant_bis <- ev_log2 %>%
+  eventlog(
+    case_id = "case_id_relevant",
+    activity_id = "shot.technique.name",
+    activity_instance_id = "activity_instance_id",
+    lifecycle_id = "status",
+    timestamp = "timestamp",
+    resource_id = "player.name" #ou shot.technique.name ou shot.outcome.name
+  )
+```
+
+```{r}
+ev_log2_relevant_bis2 <- ev_log2 %>%
+  eventlog(
+    case_id = "case_id_relevant",
+    activity_id = "shot.outcome.name",
+    activity_instance_id = "activity_instance_id",
+    lifecycle_id = "status",
+    timestamp = "timestamp",
+    resource_id = "shot.type.name" #ou shot.technique.name ou shot.outcome.name
+  )
+```
+
+  -- EXEMPLE 3 -- TYPES D'ACTIONS -- 
+
+**Exemple 1**  
+Séquences des types d'actions les plus intéressantes (environ les 2 ou 4 qui précèdent) 
+> avant un tir sauvé par le gardien 
+> avant un shot 
+> avant un penalty --> peu pertinent car il n'y en a qu'un !!! 
+> avant un goal 
+> avant une sortie de ballon "out" 
+
+**Exemple 2** 
+> start : goal_kick 
+> end : 2 actions après 
+> end : avant que l'on dépasse la moitié du terrain en partant du gardien
+
+**Exemple 3** 
+> start : goal_kick 
+> end : avant que l'on dépasse la moitié du terrain en partant du gardien
+
+```{r}
+ev_log3 <- WC2023_Spain_firstmatch_dataframe[, c("timestamp","type.name", "player.name","team.name","play_pattern.name","shot.outcome.name","out","pass.outcome.name","pass.type.name","position.name","location.x")]
+
+ev_log3 <- ev_log3 %>%
+  filter(team.name == "Spain")
+
+ev_log3$timestamp <- as.POSIXct(ev_log3$timestamp, format = "%H:%M:%OS")
+```
+
+```{r}
+ev_log3 <- ev_log3 %>% slice(3:n())
+```
+
+```{r}
+ev_log3 <- ev_log3[!is.na(ev_log3$player.name), ]
+```
+
+```{r}
+date_first_match <- "2023-07-21"
+ev_log3$timestamp <- sub("^\\d{4}-\\d{2}-\\d{2}", date_first_match, ev_log3$timestamp)
+ev_log3$timestamp <- as.POSIXct(ev_log3$timestamp, format = "%Y-%m-%d %H:%M:%OS")
+```
+
+**CAS 0**
+> avant un penalty --> peu pertinent il n'y en a qu'un !!! et il a été saved par un joueur de l'équipe adverse.
+
+**CAS 1**
+case_id_relevant : shot et choisir les 2 ou 3 actions avant pour définir chaque cas ! 
+
+```{r}
+# Trouver les indices des lignes qui contiennent "Shot"
+shot_indices <- which(ev_log3$type.name == "Shot")
+
+# Sélectionner les indices des lignes précédentes (3 lignes avant chaque "Shot")
+# changer la valeur 3 dans start_index ci-dessous pour prendre plus ou moins d'actions avant le tir
+selected_rows <- lapply(shot_indices, function(i) {
+  start_index <- max(1, i - 3)  # Assurer que l'indice de départ n'est pas négatif
+  end_index <- i
+  return(start_index:end_index)
+})
+
+# Concaténer les résultats en une seule liste
+selected_rows <- unlist(selected_rows)
+
+# Utiliser distinct pour s'assurer qu'il n'y a pas de doublons
+selected_rows <- unique(selected_rows)
+
+# Sélectionner les lignes du dataframe initial
+ev_log3_shot <- ev_log3[selected_rows, ]
+
+```
+
+```{r}
+ev_log3_shot <- ev_log3_shot %>% mutate(activity_instance_id = row_number())
+ev_log3_shot <- ev_log3_shot %>% mutate(status = "Complete")
+```
+
+```{r}
+#Création d'une colonne "done" afin de pouvoir incrémenter de 1 case_id la ligne après qu'il y ait eu le shot sinon il y a un petit décalage
+ev_log3_shot <- ev_log3_shot %>%
+  mutate(done = NA_character_)
+
+nb_li <- nrow(ev_log3_shot)
+
+for (i in 2:nb_li ) { 
+  if ( !is.na(ev_log3_shot$type.name[i-1]) && ev_log3_shot$type.name[i-1] == "Shot" ) { 
+    ev_log3_shot$done[i] <- "Done"
+  }
+}
+```
+
+On change de cas lorsqu'il y a un shot
+```{r}
+ev_log3_shot <- ev_log3_shot %>%
+  mutate(case_id_relevant = 1+cumsum(done == "Done" & !is.na(done))) 
+```
+
+```{r}
+ev_log3_shot <- ev_log3_shot %>%
+  select(-player.name,-team.name,-shot.outcome.name,-out,-pass.outcome.name,-pass.type.name,-position.name,-location.x)
+
+```
+
+```{r}
+ev_log3_shot <- ev_log3_shot %>%
+  eventlog(
+    case_id = "case_id_relevant",
+    activity_id = "type.name",
+    activity_instance_id = "activity_instance_id",
+    lifecycle_id = "status",
+    timestamp = "timestamp",
+    resource_id = "play_pattern.name"
+  )
+```
+
+**CAS 2**
+case_id_relevant : goal et choisir les 2 actions avant pour définir chaque cas ! 
+
+```{r}
+# Trouver les indices des lignes qui contiennent "Shot" avec "Goal" dans "shot.outcome.name"
+goal_shot_indices <- which(ev_log3$type.name == "Shot" & ev_log3$shot.outcome.name == "Goal")
+
+# Sélectionner les indices des lignes précédentes (10 lignes avant chaque "Shot" avec "Goal")
+selected_rows <- lapply(goal_shot_indices, function(i) {
+  start_index <- max(1, i - 2)  # Assurer que l'indice de départ n'est pas négatif
+  end_index <- i
+  return(start_index:end_index)
+})
+
+# Concaténer les résultats en une seule liste
+selected_rows <- unlist(selected_rows)
+
+# Utiliser distinct pour s'assurer qu'il n'y a pas de doublons
+selected_rows <- unique(selected_rows)
+
+# Sélectionner les lignes du dataframe initial
+ev_log3_goal <- ev_log3[selected_rows, ]
+```
+
+```{r}
+ev_log3_goal <- ev_log3_goal %>% mutate(activity_instance_id = row_number())
+ev_log3_goal <- ev_log3_goal %>% mutate(status = "Complete")
+```
+
+On change de cas lorsqu'il y a un goal
+
+```{r}
+#Création d'une colonne "done" afin de pouvoir incrémenter de 1 case_id la ligne après qu'il y ait eu le goal
+ev_log3_goal <- ev_log3_goal %>%
+  mutate(done = NA_character_)
+
+nb_li <- nrow(ev_log3_goal)
+
+for (i in 2:nb_li ) { 
+  if ( !is.na(ev_log3_goal$shot.outcome.name[i-1]) && ev_log3_goal$shot.outcome.name[i-1] == "Goal" ) { 
+    ev_log3_goal$done[i] <- "Done"
+  }
+}
+```
+
+```{r}
+ev_log3_goal <- ev_log3_goal %>%
+  mutate(case_id_relevant = 1+cumsum(done == "Done" & !is.na(done))) 
+```
+
+```{r}
+ev_log3_goal <- ev_log3_goal %>%
+  select(-player.name,-team.name,-shot.outcome.name,-out,-pass.outcome.name,-pass.type.name,-position.name,-location.x)
+
+```
+
+```{r}
+ev_log3_goal <- ev_log3_goal %>%
+  eventlog(
+    case_id = "case_id_relevant",
+    activity_id = "type.name",
+    activity_instance_id = "activity_instance_id",
+    lifecycle_id = "status",
+    timestamp = "timestamp",
+    resource_id = "play_pattern.name"
+  )
+```
+
+**CAS 3**
+case_id_relevant : shot arrêté par le gardien et choisir les 10 actions avant pour définir chaque cas ! 
+> "Saved", “Saved Off T”,  “Saved To Post”
+
+```{r}
+# Trouver les indices des lignes qui contiennent "Shot" avec les outcomes spécifiés
+saved_shot_indices <- which(ev_log3$type.name == "Shot" & 
+                            ev_log3$shot.outcome.name %in% c("Saved", "Saved To Post", "Saved Off T"))
+
+# Sélectionner les indices des lignes précédentes (2 lignes avant chaque "Shot" avec les outcomes spécifiés)
+selected_rows <- lapply(saved_shot_indices, function(i) {
+  start_index <- max(1, i - 2)  # negation que l'indice de départ n'est pas négatif
+  end_index <- i
+  return(start_index:end_index)
+})
+
+# Concaténer les résultats en une seule liste
+selected_rows <- unlist(selected_rows)
+
+# Utiliser distinct pour s'assurer qu'il n'y a pas de doublons
+selected_rows <- unique(selected_rows)
+
+# Sélectionner les lignes du dataframe initial
+ev_log3_shot_saved <- ev_log3[selected_rows, ]
+
+```
+
+```{r}
+ev_log3_shot_saved <- ev_log3_shot_saved %>% mutate(activity_instance_id = row_number())
+ev_log3_shot_saved <- ev_log3_shot_saved %>% mutate(status = "Complete")
+```
+
+On change de cas lorsque le ballon a été arrêté par le gardien
+
+```{r}
+#Création d'une colonne "done" afin de pouvoir incrémenter de 1 case_id la ligne après que le ballon ait été arrêté par le gardien
+ev_log3_shot_saved <- ev_log3_shot_saved %>%
+  mutate(done = NA_character_)
+
+nb_li <- nrow(ev_log3_shot_saved)
+
+for (i in 2:nb_li ) { 
+  if ( !is.na(ev_log3_shot_saved$shot.outcome.name[i-1]) && (ev_log3_shot_saved$shot.outcome.name[i-1] == "Saved" | ev_log3_shot_saved$shot.outcome.name[i-1] == "Saved To Post" | ev_log3_shot_saved$shot.outcome.name[i-1] == "Saved Off"   )) { 
+    ev_log3_shot_saved$done[i] <- "Done"
+  }
+}
+
+```
+
+```{r}
+ev_log3_shot_saved <- ev_log3_shot_saved %>%
+  mutate(case_id_relevant = 1+cumsum(done == "Done" & !is.na(done))) 
+```
+
+```{r}
+ev_log3_shot_saved <- ev_log3_shot_saved %>%
+  select(-player.name,-team.name,-shot.outcome.name,-out,-pass.outcome.name,-pass.type.name,-position.name,-location.x)
+
+```
+
+```{r}
+ev_log3_shot_saved <- ev_log3_shot_saved %>%
+  eventlog(
+    case_id = "case_id_relevant",
+    activity_id = "type.name",
+    activity_instance_id = "activity_instance_id",
+    lifecycle_id = "status",
+    timestamp = "timestamp",
+    resource_id = "play_pattern.name"
+  )
+```
+
+
+**CAS 4**
+case_id_relevant : 10 actions avant une sortie de ballon hors des limites du terrain 
+
+```{r}
+# Trouver les indices des lignes qui contiennent "Out" dans "pass.outcome.name"
+# ou lorsque la colonne "out" a la valeur "TRUE"
+out_pass_indices <- which(ev_log3$pass.outcome.name == "Out" | ev_log3$out == TRUE)
+
+# Sélectionner les indices des lignes précédentes (2 lignes avant chaque occurrence "Out")
+selected_rows_out <- lapply(out_pass_indices, function(i) {
+  start_index <- max(1, i - 2)  # Assurer que l'indice de départ n'est pas négatif
+  end_index <- i
+  return(start_index:end_index)
+})
+
+# Concaténer les résultats en une seule liste
+selected_rows_out <- unlist(selected_rows_out)
+
+# Utiliser distinct pour s'assurer qu'il n'y a pas de doublons
+selected_rows_out <- unique(selected_rows_out)
+
+# Sélectionner les lignes du dataframe initial
+ev_log3_out <- ev_log3[selected_rows_out, ]
+```
+
+```{r}
+ev_log3_out <- ev_log3_out %>% mutate(activity_instance_id = row_number())
+ev_log3_out <- ev_log3_out %>% mutate(status = "Complete")
+```
+
+On change de cas lorsque le ballon est sorti du terrain
+
+```{r}
+#Création d'une colonne "done" afin de pouvoir incrémenter de 1 case_id la ligne après que le ballon soit sorti
+ev_log3_out <- ev_log3_out %>%
+  mutate(done = NA_character_)
+
+nb_li <- nrow(ev_log3_out)
+
+for (i in 2:nb_li ) { 
+  if ( !is.na(ev_log3_out$pass.outcome.name[i-1]) && ev_log3_out$pass.outcome.name[i-1] == "Out" ) { 
+    ev_log3_out$done[i] <- "Done"
+  }
+  else if (!is.na(ev_log3_out$out[i-1]) && ev_log3_out$out[i-1] == TRUE){
+    ev_log3_out$done[i] <- "Done"
+  }
+}
+```
+
+```{r}
+ev_log3_out <- ev_log3_out %>%
+  mutate(case_id_relevant = 1+cumsum(done == "Done" & !is.na(done))) 
+```
+
+```{r}
+ev_log3_out <- ev_log3_out %>%
+  select(-player.name,-team.name,-shot.outcome.name,-out,-pass.outcome.name,-pass.type.name,-position.name,-location.x)
+
+```
+
+```{r}
+ev_log3_out <- ev_log3_out %>%
+  eventlog(
+    case_id = "case_id_relevant",
+    activity_id = "type.name",
+    activity_instance_id = "activity_instance_id",
+    lifecycle_id = "status",
+    timestamp = "timestamp",
+    resource_id = "play_pattern.name"
+  )
+```
+
+**CAS 5**
+> start : play_pattern.name == "From Goal Kick" (The event was part of the passage of play following a goal kick.) ou pass.type.name == "Goal Kick"
+[ ou position == "Goal Keeper" (position the player was in at the time of this event) ]
+> end : 2 actions après
+
+```{r}
+# Trouver les indices des lignes qui contiennent "From Goal Kick" dans "play_pattern.name"
+goal_kick_indices <- which(ev_log3$play_pattern.name == "From Goal Kick" )
+# | ev_log3$pass.type.name == "Goal Kick" )
+
+# Sélectionner les indices des lignes suivantes (2 lignes après chaque "From Goal Kick")
+selected_rows_goal_kick <- lapply(goal_kick_indices, function(i) {
+  start_index <- i
+  end_index <- min(nrow(ev_log3), i + 2)  # lines que l'indice de fin ne dépasse pas le nombre total de lignes
+  return(start_index:end_index)
+})
+
+# Concaténer les résultats en une seule liste
+selected_rows_goal_kick <- unlist(selected_rows_goal_kick)
+
+# Utiliser distinct pour s'assurer qu'il n'y a pas de doublons
+selected_rows_goal_kick <- unique(selected_rows_goal_kick)
+
+# Sélectionner les lignes du dataframe initial
+ev_log3_from_goal_kick <- ev_log3[selected_rows_goal_kick, ]
+```
+
+```{r}
+ev_log3_from_goal_kick <- ev_log3_from_goal_kick %>% mutate(activity_instance_id = row_number())
+ev_log3_from_goal_kick <- ev_log3_from_goal_kick %>% mutate(status = "Complete")
+```
+
+On change de cas lorsque th event was part of the passage of play following a goal kick
+
+```{r}
+ev_log3_from_goal_kick <- ev_log3_from_goal_kick %>%
+  mutate(case_id_relevant = 0)
+
+ev_log3_from_goal_kick$case_id_relevant[1]= 1 
+
+for (i in 2:nrow(ev_log3_from_goal_kick) ) { 
+  if ( !is.na(ev_log3_from_goal_kick$play_pattern.name[i]) && ev_log3_from_goal_kick$play_pattern.name[i] == "From Goal Kick" ) { 
+    ev_log3_from_goal_kick$case_id_relevant[i] <- ev_log3_from_goal_kick$case_id_relevant[i-1] +1
+  }
+  else if (!is.na(ev_log3_from_goal_kick$play_pattern.name[i]) && ev_log3_from_goal_kick$play_pattern.name[i] != "From Goal Kick" ) {
+    ev_log3_from_goal_kick$case_id_relevant[i] <- ev_log3_from_goal_kick$case_id_relevant[i-1]
+  }
+}
+```
+
+```{r}
+ev_log3_from_goal_kick <- ev_log3_from_goal_kick %>%
+  select(-player.name,-team.name,-shot.outcome.name,-out,-pass.outcome.name,-pass.type.name,-position.name,-location.x)
+
+```
+
+```{r}
+ev_log3_from_goal_kick <- ev_log3_from_goal_kick %>%
+  eventlog(
+    case_id = "case_id_relevant",
+    activity_id = "type.name",
+    activity_instance_id = "activity_instance_id",
+    lifecycle_id = "status",
+    timestamp = "timestamp",
+    resource_id = "play_pattern.name"
+  )
+```
+___________________________________ 
+
+-- EXEMPLE 4 bis -- POSSESSIONS + JEU ESPAGNE  
+
+```{r}
+WC2023_Spain_firstmatch_dataframe <- WC2023_Spain_firstmatch_dataframe %>%
+  mutate(possession_team.name = str_remove(possession_team.name, " Women's"))
+
+ev_log4 <- WC2023_Spain_firstmatch_dataframe[, c("timestamp","type.name","possession_team.name", "player.name","play_pattern.name")]
+
+ev_log4$timestamp <- as.POSIXct(ev_log4$timestamp, format = "%H:%M:%OS")
+```
+
+```{r}
+ev_log4 <- ev_log4 %>% slice(5:n())
+```
+
+```{r}
+date_first_match <- "2023-07-21"
+ev_log4$timestamp <- sub("^\\d{4}-\\d{2}-\\d{2}", date_first_match, ev_log4$timestamp)
+ev_log4$timestamp <- as.POSIXct(ev_log4$timestamp, format = "%Y-%m-%d %H:%M:%OS")
+```
+
+```{r}
+# Créer une nouvelle dataframe pour stocker les résultats
+new_ev_log4 <- data.frame()
+
+for (i in 1:nrow(ev_log4)) {
+  new_ev_log4 <- rbind(new_ev_log4, ev_log4[i, ])
+  
+  # Vérifier s'il y a un changement de nom d'équipe dans la colonne "possession_team.name"
+  if (i < nrow(ev_log4) && ev_log4$possession_team.name[i] != ev_log4$possession_team.name[i + 1]) {
+    new_ev_log4 <- rbind(new_ev_log4, ev_log4[i + 1, ])
+  }
+}
+
+# Réassigner les valeurs à ev_log4
+ev_log4 <- new_ev_log4
+
+```
+
+```{r}
+ev_log4 <- ev_log4[complete.cases(ev_log4), ]
+```
+
+```{r}
+# Créer une copie du dataframe
+new_ev_log4 <- ev_log4
+
+# Identifier les lignes consécutives identiques
+for (i in 1:(nrow(ev_log4) - 1)) {
+  if(all(ev_log4[i, ] == ev_log4[i + 1, ])) {
+    if (ev_log4$possession_team.name[i] == "Spain") {
+      new_ev_log4$possession_team.name[i] <- "Costa Rica"
+    } else if (ev_log4$possession_team.name[i] == "Costa Rica") {
+      new_ev_log4$possession_team.name[i] <- "Spain"
+    }
+  }
+}
+
+# Réassigner les valeurs à ev_log4
+ev_log4 <- new_ev_log4
+
+```
+
+```{r}
+# Identifier la première ligne du dataframe
+ev_log4$type.name[1] <- "Possession"
+
+nombre_de_lignes <- nrow(ev_log4)
+
+# Parcourir les changements d'équipes (jusqu'à l'avant-dernière ligne)
+for (i in 1:(nombre_de_lignes - 1)) {
+  if (!is.na(ev_log4$possession_team.name[i]) && !is.na(ev_log4$possession_team.name[i + 1]) &&
+      i + 1 <= nombre_de_lignes && ev_log4$possession_team.name[i + 1] != ev_log4$possession_team.name[i]) {
+    # S'il y a deux lignes consécutives avec des équipes différentes, changer la valeur de "type.name" pour ces lignes
+    ev_log4$type.name[i] <- "Possession"
+    ev_log4$type.name[i + 1] <- "Possession"
+  }
+}
+```
+
+```{r}
+# Filtrer le dataframe pour les valeurs spécifiques dans la colonne "type.name"
+ev_log4 <- ev_log4 %>%
+  filter(type.name %in% c("Possession", "Pass", "Ball Receipt*"))
+```
+
+```{r}
+# Créer une colonne "status" en alternant entre "Start" et "Complete" pour les lignes avec "Possession"
+ev_log4 <- ev_log4 %>%
+  mutate(status = ifelse(type.name == "Pass", "Start",   # Assigner "Start" pour "Pass"
+           ifelse(type.name == "Ball Receipt*", "Complete",  # Assigner "Complete" pour "Ball Receipt*"
+             ifelse(type.name == "Possession", c("Start", "Complete"), NA))))  # Alterner "Start" et "Complete" pour "Possession"
+
+```
+
+```{r}
+# Créer une colonne 'occurrence' pour numéroter les occurrences de 'Possession'
+ev_log4 <- ev_log4 %>%
+  mutate(occurrence = cumsum(type.name == "Possession"))
+
+# Utiliser l'indice 'occurrence' pour définir 'Start' ou 'Complete'
+ev_log4 <- ev_log4 %>%
+  mutate(status = case_when(
+    type.name == "Possession" & occurrence %% 2 == 1 ~ "Start",
+    type.name == "Possession" & occurrence %% 2 == 0 ~ "Complete",
+    TRUE ~ status
+  )) %>%
+  select(-occurrence)
+
+```
+
+```{r}
+ev_log4 <- ev_log4 %>%
+  mutate(type.name = ifelse(row_number() >= 4 & type.name == "Ball Receipt*", "Pass", type.name))
+```
+
+```{r}
+ev_log4 <- ev_log4 %>%
+  mutate(activity_instance_id = 0)  # Initialise la colonne avec des zéros
+```
+
+```{r}
+aux <- 3
+aux_bis <- 1
+nombre_de_lignes_bis <- nrow(ev_log4)
+ev_log4$activity_instance_id[1] <- 1
+ev_log4$activity_instance_id[2] <- 2
+
+for (i in 3:nombre_de_lignes_bis - 1 ) { 
+  if ( ev_log4$status[i] == "Start" && ev_log4$type.name[i] != "Possession" ) { 
+  ev_log4$activity_instance_id[i] <- aux
+  ev_log4$activity_instance_id[i+1] <- aux
+  aux <- aux + 1
+}
+  else if ( ev_log4$type.name[i] == "Possession" && ev_log4$type.name[i+1] == "Possession" ) { 
+  ev_log4$activity_instance_id[i] <- aux_bis
+  ev_log4$activity_instance_id[i+1] <- aux 
+  aux_bis <- aux
+  aux <- aux + 1
+  }
+  else if ( ev_log4$type.name[i] == "Pass" && ev_log4$status[i] == "Complete" && ev_log4$type.name[i-1] == "Possession" ) { 
+  ev_log4$activity_instance_id[i] <- aux
+  aux <- aux + 1
+  }
+  
+}
+```
+
+```{r}
+ev_log4 <- ev_log4 %>%
+  select(-play_pattern.name)
+```
+ 
+```{r}
+ev_log4_bis <- ev_log4 %>%
+  filter(possession_team.name == "Spain")
+```
+ 
+```{r}
+ev_log4_bis <- ev_log4_bis %>%
+  mutate(
+    case_id_relevant = cumsum(type.name == "Possession" & cumsum(type.name == "Possession") %% 3 == 0) + 1
+  )
+```
+ 
+```{r}
+ev_log4_bis <- ev_log4_bis %>%
+  eventlog(
+    case_id = "possession_team.name",
+    activity_id = "type.name",
+    activity_instance_id = "activity_instance_id",
+    lifecycle_id = "status",
+    timestamp = "timestamp",
+    resource_id = "player.name"
+  )
+```
+
+```{r}
+ev_log4_bis_relevant <- ev_log4_bis 
+```
+
+**Definition du case_id en fonction d'indicateurs**
+
+```{r}
+for (i in 1:nrow(ev_log4_bis_relevant)) {
+  ev_log4_bis_relevant$case_id_relevant[i] = ev_log4_bis_relevant$activity_instance_id[i]
+}
+```
+
+```{r}
+ev_log4_bis_relevant <- ev_log4_bis_relevant %>%
+  eventlog(
+    case_id = "case_id_relevant",
+    activity_id = "type.name",
+    activity_instance_id = "activity_instance_id",
+    lifecycle_id = "status",
+    timestamp = "timestamp",
+    resource_id = "player.name"
+  )
+```
+
+EXEMPLE 5 -- POSSESSIONS PAR TEAM -- ALL COMPLETE
+
+```{r}
+ev_log5_complete <- WC2023_Spain_firstmatch_dataframe[,c("timestamp","player.name","type.name","possession_team.id", "possession_team.name")]
+
+ev_log5_complete<- ev_log5_complete %>% 
+  mutate(ball_possession = ifelse(ev_log5_complete$possession_team.id == 863, "Spain possession", "CostaRica possession"))
+
+ev_log5_complete <- ev_log5_complete %>% slice(5:n())
+```
+
+```{r}
+ev_log5_complete$timestamp <- as.POSIXct(ev_log5_complete$timestamp, format = "%H:%M:%OS")
+```
+
+```{r}
+date_first_match <- "2023-07-21"
+ev_log5_complete$timestamp <- sub("^\\d{4}-\\d{2}-\\d{2}", date_first_match, ev_log5_complete$timestamp)
+ev_log5_complete$timestamp <- as.POSIXct(ev_log5_complete$timestamp, format = "%Y-%m-%d %H:%M:%OS")
+```
+
+```{r}
+ev_log5_complete <- ev_log5_complete[complete.cases(ev_log5_complete), ]
+```
+
+```{r}
+ev_log5_complete <- ev_log5_complete %>%
+  mutate(ball_possession = ifelse(ball_possession == lag(ball_possession), NA, ball_possession)) 
+
+ev_log5_complete$ball_possession[1] = "Spain possession"
+```
+
+```{r}
+for (i in 1:(nrow(ev_log5_complete))) {
+  if (!is.na(ev_log5_complete$ball_possession[i])) {
+    ev_log5_complete$type.name[i] <- ev_log5_complete$ball_possession[i]
+  }
+}
+```
+
+```{r}
+ev_log5_complete <- ev_log5_complete %>%
+  select(-ball_possession,-possession_team.id)
+```
+
+```{r}
+ev_log5_complete <- ev_log5_complete %>%
+  mutate(status = "Complete",
+         activity_instance_id = 1:nrow(.))
+```
+
+```{r}
+ev_log5_complete_bis <- ev_log5_complete
+```
+
+**Création du case_id_time en fonction du temps**
+
+```{r}
+# Créez la colonne "case_id_time" en utilisant les changements de temps toutes les 10 secondes.
+#Pour chaque cas, changer les valeurs dans l'affectation de case_id_time
+ev_log5_complete <- ev_log5_complete %>%
+  mutate(
+    timestamp_minutes =as.numeric(format(ev_log5_complete$timestamp, "%H")) * 60 +
+  as.numeric(format(ev_log5_complete$timestamp, "%M")),
+    timestamp_secondes = as.numeric(format(ev_log5_complete$timestamp, "%H")) * 3600 + 
+  as.numeric(format(ev_log5_complete$timestamp, "%M"))*60 + as.numeric(format(ev_log5_complete$timestamp, "%OS"))
+  )
+
+```
+
+```{r}
+ev_log5_complete <- ev_log5_complete %>%
+  mutate(
+    case_id_time = 1 + (timestamp_secondes %/% 600) # Incrémenter toutes les 600 secondes
+  )
+```
+
+**Création du case_id_ relevant en fonction d'indicateurs**
+
+Ici, nous pouvons choisir comme évènements marquants le changement d'équipe de possession de la balle.
+Création d'une colonne changement pour savoir quand l'équipe de possession du ballon change
+
+```{r}
+ev_log5_complete<- ev_log5_complete %>% 
+  mutate(ev_log5_complete, changement = ifelse(possession_team.name != lag(possession_team.name), "changement", NA) )
+
+ev_log5_complete <- ev_log5_complete %>%
+  mutate(case_id_relevant = 1+cumsum(changement %in% c("changement")))
+
+```
+
+```{r}
+ev_log5_complete<- ev_log5_complete %>%
+  select(-timestamp_minutes,-timestamp_secondes)
+```
+
+```{r}
+ev_log5_complete_time <- ev_log5_complete %>%
+    eventlog(
+    case_id = "case_id_time", 
+    activity_id = "type.name", #type d'action effectuée 
+    activity_instance_id = "activity_instance_id", 
+    lifecycle_id = "status",
+    timestamp = "timestamp",
+    resource_id = "player.name"
+    )
+```
+
+```{r}
+ev_log5_complete_relevant <- ev_log5_complete %>%
+    eventlog(
+    case_id = "case_id_relevant", 
+    activity_id = "type.name", #type d'action effectuée 
+    activity_instance_id = "activity_instance_id", 
+    lifecycle_id = "status",
+    timestamp = "timestamp",
+    resource_id = "player.name"
+    )
+```
+
+  -- EXEMPLE 11 -- SPANISH PLAYERS' POSITION
+
+**CAS 1** 
+> start : "Left Back" ou "Left Center Back"
+> end : 2 actions après ou perte de balle (équipe adverse)
+
+```{r}
+ev_log11 <- WC2023_Spain_firstmatch_dataframe[, c("timestamp","type.name", "player.name","position.name","period","team.name")]
+
+ev_log11 <- ev_log11 %>%
+  filter(team.name == "Spain")
+
+ev_log11 <- ev_log11 %>% select(-team.name)
+
+```
+
+```{r}
+ev_log11$timestamp <- as.POSIXct(ev_log11$timestamp, format = "%H:%M:%OS")
+```
+
+```{r}
+date_first_match <- "2023-07-21"
+ev_log11$timestamp <- sub("^\\d{4}-\\d{2}-\\d{2}", date_first_match, ev_log11$timestamp)
+ev_log11$timestamp <- as.POSIXct(ev_log11$timestamp, format = "%Y-%m-%d %H:%M:%OS")
+```
+
+```{r}
+ev_log11 <- ev_log11[complete.cases(ev_log11), ]
+```
+
+```{r}
+# Trouver les indices des lignes qui contiennent "From Goal Kick" dans "play_pattern.name"
+left_back_indices <- which(ev_log11$position.name == "Center Defensive Midfield" )
+# | ev_log3$pass.type.name == "Goal Kick" )
+
+# Sélectionner les indices des lignes suivantes (2 lignes après chaque "From Goal Kick")
+selected_rows_left_back <- lapply(left_back_indices, function(i) {
+  start_index <- i
+  end_index <- min(nrow(ev_log11), i + 2)  # lines que l'indice de fin ne dépasse pas le nombre total de lignes
+  return(start_index:end_index)
+})
+
+# Concaténer les résultats en une seule liste
+selected_rows_left_back <- unlist(selected_rows_left_back)
+
+# Utiliser distinct pour s'assurer qu'il n'y a pas de doublons
+selected_rows_left_back <- unique(selected_rows_left_back)
+
+# Sélectionner les lignes du dataframe initial
+ev_log11_from_left_back <- ev_log11[selected_rows_left_back, ]
+```
+
+```{r}
+ev_log11_from_left_back <- ev_log11_from_left_back %>% mutate(activity_instance_id = row_number())
+ev_log11_from_left_back <- ev_log11_from_left_back %>% mutate(status = "Complete")
+```
+
+```{r}
+ev_log11_from_left_back <- ev_log11_from_left_back %>%
+  mutate(case_id_relevant = 0)
+
+ev_log11_from_left_back$case_id_relevant[1]= 1 
+
+nb_li <- nrow(ev_log11_from_left_back)
+
+for (i in 2:nb_li ) { 
+  if ( !is.na(ev_log11_from_left_back$position.name[i]) && ev_log11_from_left_back$position.name[i] == "Center Defensive Midfield" ) { 
+    ev_log11_from_left_back$case_id_relevant[i] <- ev_log11_from_left_back$case_id_relevant[i-1] +1
+  }
+  else if (!is.na(ev_log11_from_left_back$position.name[i]) && ev_log11_from_left_back$position.name[i] != "Center Defensive Midfield" ) {
+    ev_log11_from_left_back$case_id_relevant[i] <- ev_log11_from_left_back$case_id_relevant[i-1]
+  }
+}
+```
+
+```{r}
+ev_log11_from_left_back <- ev_log11_from_left_back %>%
+  eventlog(
+    case_id = "case_id_relevant",
+    activity_id = "position.name",
+    activity_instance_id = "activity_instance_id",
+    lifecycle_id = "status",
+    timestamp = "timestamp",
+    resource_id = "type.name"
+  )
+```
+
+**CAS 2** 
+> start : le ballon part du gardien 
+> end : on a dépassé la moitié du terrain
+
+```{r}
+ev_log11_goalkeeper <- WC2023_Spain_firstmatch_dataframe[, c("timestamp","type.name", "player.name","position.name","period","team.name","location.x")]
+
+ev_log11_goalkeeper <- ev_log11_goalkeeper %>%
+  filter(team.name == "Spain")
+
+ev_log11_goalkeeper <- ev_log11_goalkeeper %>% select(-team.name)
+
+```
+
+```{r}
+ev_log11_goalkeeper$timestamp <- as.POSIXct(ev_log11_goalkeeper$timestamp, format = "%H:%M:%OS")
+```
+
+```{r}
+date_first_match <- "2023-07-21"
+ev_log11_goalkeeper$timestamp <- sub("^\\d{4}-\\d{2}-\\d{2}", date_first_match, ev_log11_goalkeeper$timestamp)
+ev_log11_goalkeeper$timestamp <- as.POSIXct(ev_log11_goalkeeper$timestamp, format = "%Y-%m-%d %H:%M:%OS")
+```
+
+```{r}
+ev_log11_goalkeeper <- ev_log11_goalkeeper[complete.cases(ev_log11_goalkeeper), ]
+```
+
+```{r}
+# Trouver les indices des lignes qui contiennent "Goalkeeper" dans "position.name"
+goalkeeper_indices <- which(ev_log11_goalkeeper$position.name == "Goalkeeper")
+
+# Sélectionner les indices des lignes suivantes tant que "location.x" est inférieur ou égal à 60
+selected_rows_goalkeeper <- lapply(goalkeeper_indices, function(i) {
+  start_index <- i
+  end_index <- i
+  
+  # Sélectionner les lignes tant que "location.x" est inférieur ou égal à 60
+  while (end_index <= nrow(ev_log11_goalkeeper) && ev_log11_goalkeeper$location.x[end_index] <= 60) {
+    end_index <- end_index + 1
+  }
+  
+  return(start_index:end_index)
+})
+
+# Concaténer les résultats en une seule liste
+selected_rows_goalkeeper <- unlist(selected_rows_goalkeeper)
+
+# Utiliser distinct pour s'assurer qu'il n'y a pas de doublons
+selected_rows_goalkeeper <- unique(selected_rows_goalkeeper)
+
+# Sélectionner les lignes du dataframe initial
+ev_log11_goalkeeper <- ev_log11_goalkeeper[selected_rows_goalkeeper, ]
+
+```
+
+```{r}
+ev_log11_goalkeeper <- ev_log11_goalkeeper %>% mutate(activity_instance_id = row_number())
+ev_log11_goalkeeper <- ev_log11_goalkeeper %>% mutate(status = "Complete")
+```
+
+On change de cas lorsque th event was part of the passage of play following a goal kick
+
+```{r}
+ev_log11_goalkeeper <- ev_log11_goalkeeper %>%
+  mutate(case_id_relevant = 0)
+
+ev_log11_goalkeeper$case_id_relevant[1]= 1 
+
+for (i in 2:nrow(ev_log11_goalkeeper) ) { 
+  if ( !is.na(ev_log11_goalkeeper$position.name[i]) && ev_log11_goalkeeper$position.name[i] == "Goalkeeper" ) { 
+    ev_log11_goalkeeper$case_id_relevant[i] <- ev_log11_goalkeeper$case_id_relevant[i-1] +1
+  }
+  else if (!is.na(ev_log11_goalkeeper$position.name[i]) && ev_log11_goalkeeper$position.name[i] != "Goalkeeper" ) {
+    ev_log11_goalkeeper$case_id_relevant[i] <- ev_log11_goalkeeper$case_id_relevant[i-1]
+  }
+}
+```
+
+```{r}
+ev_log11_goalkeeper <- ev_log11_goalkeeper %>%
+  eventlog(
+    case_id = "case_id_relevant",
+    activity_id = "position.name",
+    activity_instance_id = "activity_instance_id",
+    lifecycle_id = "status",
+    timestamp = "timestamp",
+    resource_id = "type.name"
+  )
+```
+
+-- EXEMPLE 12 -- SPANISH PASS OUTCOME -- 
+
+```{r}
+WC2023_Spain_firstmatch_dataframe <- WC2023_Spain_firstmatch_dataframe %>%
+  mutate(possession_team.name = str_remove(possession_team.name, " Women's"))
+
+ev_log12 <- WC2023_Spain_firstmatch_dataframe[, c("timestamp","type.name","possession_team.name", "player.name","pass.outcome.name")]
+
+ev_log12 <- ev_log12 %>%
+  filter(type.name == "Pass", possession_team.name == "Spain")
+
+ev_log12 <- ev_log12 %>% filter(pass.outcome.name != "Pass Offside")
+
+#ev_log12 <- ev_log12 %>% select(-possession_team.name)
+
+ev_log12$timestamp <- as.POSIXct(ev_log12$timestamp, format = "%H:%M:%OS")
+```
+
+```{r}
+date_first_match <- "2023-07-21"
+ev_log12$timestamp <- sub("^\\d{4}-\\d{2}-\\d{2}", date_first_match, ev_log12$timestamp)
+ev_log12$timestamp <- as.POSIXct(ev_log12$timestamp, format = "%Y-%m-%d %H:%M:%OS")
+```
+
+```{r}
+ev_log12 <- ev_log12[complete.cases(ev_log12), ]
+```
+
+```{r}
+ev_log12 <- ev_log12 %>% mutate(activity_instance_id = row_number())
+ev_log12 <- ev_log12 %>% mutate(status = "Complete")
+```
+
+**Création du case_id_time en fonction du temps**
+
+```{r}
+# Créez la colonne "case_id_time" en utilisant les changements de temps toutes les 10 minutes ici car c'est plus interessant de le faire en minutes au regard du timestamp pour ces données là.
+
+#Pour chaque cas, changer les valeurs dans l'affectation de case_id_time
+ev_log12 <- ev_log12 %>%
+  mutate(
+    timestamp_minutes =as.numeric(format(ev_log12$timestamp, "%H")) * 60 +
+  as.numeric(format(ev_log12$timestamp, "%M")),
+    timestamp_secondes = as.numeric(format(ev_log12$timestamp, "%H")) * 3600 + 
+  as.numeric(format(ev_log12$timestamp, "%M"))*60 + as.numeric(format(ev_log12$timestamp, "%OS")),
+  )
+```
+
+```{r}
+ev_log12 <- ev_log12 %>%
+  mutate(
+    case_id_time = 1+ ((timestamp_minutes - 1) %/% 10)  # Incrémenter toutes les 10 minutes
+  )
+```
+
+**Création du case_id_ relevant en fonction d'indicateurs**
+Ici on choisit comme changement de cas lorsque le ballon sort du terrain suite à une passe (mauvaise passe, mal cadrée, mal réceptionnée...)
+
+```{r}
+ev_log12 <- ev_log12 %>%
+  mutate(case_id_relevant = 1+cumsum(pass.outcome.name == "Out" )) 
+```
+
+```{r}
+ev_log12 <- ev_log12 %>%
+  select(-timestamp_minutes,-timestamp_secondes)
+```
+
+```{r}
+ev_log12_time <- ev_log12 %>%
+  eventlog(
+    case_id = "case_id_time",
+    activity_id = "pass.outcome.name",
+    activity_instance_id = "activity_instance_id",
+    lifecycle_id = "status",
+    timestamp = "timestamp",
+    resource_id = "player.name" # ou possession_team.name
+  )
+```
+
+```{r}
+ev_log12_relevant <- ev_log12 %>%
+  eventlog(
+    case_id = "case_id_relevant",
+    activity_id = "pass.outcome.name",
+    activity_instance_id = "activity_instance_id",
+    lifecycle_id = "status",
+    timestamp = "timestamp",
+    resource_id = "player.name" # ou possession_team.name
+  )
+```
+
+**MAPPING**
+
+The mapping function serves to extract all the metadata within a log object, facilitating the understanding of the relationship between log identifiers and their respective data fields.
+
+```{r}
+ev_log3_shot %>% mapping 
+```
+
+>> regarder le lien : https://bupaverse.github.io/docs/analyze.html 
+
+**ACTIVITY PRESENCE**
+
+--> indique le pourcentage de cas dans lesquels une activité est présente 
+
+```{r}
+ev_log5_complete_time %>% activity_presence() %>%
+    plot
+```
+
+**ACTIVITY FREQUENCY**
+
+```{r}
+ev_log11_goalkeeper %>%
+    activity_frequency("activity") %>%
+  plot
+```
+
+**TRACE COVERAGE**
+
+--> montre la relation entre le nombre de différentes séquences d'activités (c'est-à-dire les traces) et le nombre de cas qu'elles couvrent. Cela fournit un aperçu de la diversité des chemins d'activités observés par rapport au nombre total de cas, offrant ainsi des informations sur la variété des parcours suivis par les différentes instances d'un processus.
+
+```{r}
+ev_log11_goalkeeper %>%
+    trace_coverage("trace") %>%
+    plot()
+```
+
+**TRACE LENGTH**
+
+--> décrit la longueur des traces, c'est-à-dire le nombre d'instances d'activité pour chaque cas. Elle peut être calculée aux niveaux de cas, de trace et de journal. Cela permet d'évaluer la quantité d'activités ou d'étapes spécifiques présentes dans chaque cas individuel, séquence d'activités ou ensemble de données.
+
+```{r}
+ev_log11_goalkeeper %>%
+    trace_length("log") %>%
+    plot
+```
+
+**PROCESSING TIME**
+
+ATTENTION : uniquement lorsque l'on a un statut start + complete pour les différences instances d'activités afin de pouvoir évaluer la durée de chacune.
+Peut être calculé à différents niveaux : log, trace, case, activity et resource-activity
+
+```{r}
+ev_log11_goalkeeper %>% 
+    processing_time("log") %>%
+    plot
+```
+
+**THROUGHPUT TIME**
+
+ATTENTION : uniquement lorsque l'on a un statut start + complete pour les différences instances d'activités afin de pouvoir évaluer la durée de chacune.
+
+--> évalue le laps de temps écoulé entre le début et la fin d'un cas, que ce soit au niveau global du processus, pour une séquence spécifique d'événements ou pour un cas individuel.
+
+Peut être calculé à différents niveaus : log, trace, case
+
+```{r}
+ev_log5_complete_time %>%
+    throughput_time("log") %>%
+    plot()
+```
+
+**PROCESS MAP**
+
+>> regarder le lien : https://bupaverse.github.io/docs/visualize.html 
+ 
+```{r}
+ev_log3_shot%>% 
+  process_map()
+```
+
+valeur du pourcentage dans une case = cette activité représente ...% du total des instances d'activité. Cela indique que ...% de toutes les occurrences d'activités concernent ce type spécifique d'activité. 
+
+```{r}
+ev_log3_goal %>%
+    process_map(frequency("relative")) # en pourcentages
+```
+
+**PERFORMANCE MAP**
+
+ - Par default, c'est le temps moyen qui est pris. On peut aussi rajouter le paramètre FUN = max, min, median ...
+ - On peut aussi changer le time unit : performance(mean,"days") ou performance(mean,"hours")
+ 
+```{r}
+ev_log3_goal %>%
+    process_map(performance(mean,"secs"))
+```
+
+**PROCESS MATRIX**
+
+```{r}
+ev_log12_relevant %>%
+  process_matrix(frequency("relative-antecedent")) %>%
+  plot(options = list(support = 0.1), shading = "support", measure = "confidence", size = 2)
+
+```
+
+**DOTTED CHART** 
+
+```{r}
+ev_log12_time %>%
+    dotted_chart(x = "relative",units = "secs") # ou absolute 
+```
+
+```{r}
+ev_log12_time %>%
+    dotted_chart(x = "relative",units = "mins") # ou absolute 
+```
